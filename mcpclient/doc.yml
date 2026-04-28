@@ -1,0 +1,189 @@
+group: mcpclient
+type: process
+desc: |
+  CRUD operations for the MCP Client Registry. Manages MCP (Model Context Protocol)
+  client connections with persistence and lazy runtime registration.
+
+  Process names follow the pattern "mcpclient.<handler>".
+
+  Client structure (returned by get, create, update; array elements from list):
+    Embeds all fields from ClientDSL plus registry management fields.
+
+    Inherited from ClientDSL:
+    - id (string): Unique client identifier. Required on create.
+    - name (string): Display name (e.g. "GitHub MCP", "File System").
+    - version (string, optional): Client version.
+    - type (string, optional): Client type. Values: "standard", "agent", "system".
+    - transport (string): Transport protocol. Values: "stdio", "http", "sse", "process".
+
+    Inherited from MetaInfo (embedded in ClientDSL):
+    - label (string, optional): Human-readable label for display.
+    - description (string, optional): Description text (markdown or plain).
+    - tags (array of string, optional): Categorization tags.
+    - readonly (bool, optional): Whether this client is read-only.
+    - builtin (bool, optional): Whether this is a built-in client.
+
+    For stdio transport:
+    - command (string): Executable command (e.g. "npx", "python").
+    - arguments (array of string): Command arguments (e.g. ["-y", "@modelcontextprotocol/server-github"]).
+    - env (object, optional): Environment variables as key-value pairs.
+
+    For http/sse transport:
+    - url (string): Server URL.
+    - endpoint (string, optional): API endpoint path (e.g. "/api/mcp").
+    - authorization_token (string, optional): Bearer token for authentication.
+    - timeout (string, optional): Request timeout (e.g. "30s", "5m").
+
+    For process transport:
+    - tools (object, optional): Tool name → process name mapping.
+    - prompts (object, optional): Prompt name → process name mapping.
+    - resources (object, optional): Resource name → process name mapping.
+
+    Client capability flags:
+    - enable_sampling (bool, optional): Enable sampling capability.
+    - enable_roots (bool, optional): Enable roots capability.
+    - roots_list_changed (bool, optional): Subscribe to root change notifications.
+    - enable_elicitation (bool, optional): Enable elicitation capability.
+
+    Dependencies:
+    - dependencies (object, optional): Other MCP clients this depends on (name → version constraint).
+
+    Registry management fields (added by the registry):
+    - runtime_id (string): Runtime registration ID, auto-generated.
+      Format: "s.<id>" for system, "u<user_id>.<id>" for user, "t<team_id>.<id>" for team.
+      BuiltIn clients retain their original ID.
+    - enabled (bool): Whether the client is active.
+    - status (string): Connection status. Values: "connected", "disconnected", "unconfigured".
+    - source (string): Origin. Values: "dynamic" (registry-created), "builtin" (loaded from .yao DSL).
+    - tool_list (array of Tool, optional): Discovered tools from the MCP server.
+      Each Tool has: name (string), description (string), inputSchema (object).
+    - owner (ClientOwner): Ownership information.
+
+  ClientOwner structure (Client.owner):
+    - type (string): Scope level. Values: "system", "team", "user".
+    - id (string, optional): Team ID or User ID depending on type.
+
+  ClientFilter structure (optional argument for list):
+    - source (string, optional): Filter by source.
+      Values: "dynamic" (default when omitted), "builtin", "all".
+    - owner (ClientOwner, optional): Filter by owner.
+    - enabled (bool, optional): Filter by enabled status. Omit to include both.
+    - transport (string, optional): Filter by transport type ("stdio", "http", "sse", "process").
+    - type (string, optional): Filter by client type ("standard", "agent", "system").
+    - keyword (string, optional): Case-insensitive substring search in id, name, and label.
+
+entries:
+  - name: get
+    desc: |
+      Get an MCP client by ID, returning the full Client object.
+      Lazily ensures the runtime MCP client is registered on first access.
+      Throws 404 if the client ID does not exist.
+    args:
+      - name: id
+        type: string
+        required: true
+        desc: Client ID (e.g. "github-mcp", "filesystem").
+    return:
+      type: object
+      desc: |
+        Full Client object. See Client structure above.
+        Example: {"id":"github-mcp","name":"GitHub MCP","type":"standard",
+          "transport":"stdio","command":"npx",
+          "arguments":["-y","@modelcontextprotocol/server-github"],
+          "enabled":true,"status":"connected","source":"dynamic",
+          "runtime_id":"s.github-mcp","owner":{"type":"system"}}
+
+  - name: create
+    desc: |
+      Create a new MCP client. Persists to __yao.store, registers the runtime
+      MCP client, and returns the complete Client object.
+      The "source" field is automatically set to "dynamic".
+      The "runtime_id" field is auto-generated based on owner type.
+      Throws 400 if id is empty or already exists.
+    args:
+      - name: data
+        type: object
+        required: true
+        desc: |
+          Client data object. Required fields depend on transport type:
+
+          For stdio transport:
+            {"id":"my-mcp","name":"My MCP","type":"standard","transport":"stdio",
+             "command":"npx","arguments":["-y","@some/mcp-server"],
+             "enabled":true,"owner":{"type":"system"}}
+
+          For http/sse transport:
+            {"id":"remote-mcp","name":"Remote MCP","type":"standard","transport":"sse",
+             "url":"https://mcp.example.com","authorization_token":"Bearer xxx",
+             "enabled":true,"owner":{"type":"user","id":"42"}}
+
+          For process transport:
+            {"id":"local-tools","name":"Local Tools","type":"standard","transport":"process",
+             "tools":{"search":"scripts.search.Run","fetch":"scripts.fetch.Run"},
+             "enabled":true,"owner":{"type":"system"}}
+    return:
+      type: object
+      desc: Created Client object with runtime_id and source="dynamic" populated.
+
+  - name: update
+    desc: |
+      Update an existing MCP client by ID. Replaces the stored client with the
+      provided data, hot-replaces the runtime client, and returns the updated object.
+      IMPORTANT: This is a full replacement, not a partial merge. You must provide
+      all fields you want to keep. Only "id", "source", "runtime_id", and "owner"
+      are automatically preserved from the existing record if omitted or zero-valued.
+      Throws 400 if the client ID is not found.
+    args:
+      - name: id
+        type: string
+        required: true
+        desc: Client ID to update.
+      - name: data
+        type: object
+        required: true
+        desc: |
+          Full Client data object. Same field structure as "create".
+          The "id" field inside data is ignored; the first argument determines
+          which client to update. Fields not provided will be reset to zero values,
+          except source, runtime_id, and owner which fall back to the existing values.
+    return:
+      type: object
+      desc: Updated Client object with all fields.
+
+  - name: delete
+    desc: |
+      Delete an MCP client by ID. Removes from persistent store, clears cache,
+      and unloads the runtime MCP client.
+      Throws 404 if the client ID does not exist.
+    args:
+      - name: id
+        type: string
+        required: true
+        desc: Client ID to delete.
+    return:
+      type: "null"
+      desc: Returns null on success.
+
+  - name: list
+    desc: |
+      List MCP clients matching a filter. When no filter is provided, defaults to
+      source="dynamic" (only registry-created clients). Pass {"source":"all"} to
+      include both dynamic and built-in (.yao DSL) clients.
+    args:
+      - name: filter
+        type: object
+        required: false
+        desc: |
+          ClientFilter object. All fields are optional:
+            - source (string): "dynamic" (default), "builtin", or "all".
+            - owner (ClientOwner): e.g. {"type":"user","id":"42"}.
+            - enabled (bool): true or false.
+            - transport (string): "stdio", "http", "sse", or "process".
+            - type (string): "standard", "agent", or "system".
+            - keyword (string): Substring search in id, name, and label.
+          Example: {"source":"all","transport":"stdio"}
+          Omit this argument entirely to list all dynamic clients.
+    return:
+      type: array
+      desc: |
+        Array of Client objects. May be empty if no clients match the filter.

@@ -48,6 +48,7 @@ import (
 	sandbox "github.com/yaoapp/yao/sandbox/v2"
 	"github.com/yaoapp/yao/schedule"
 	"github.com/yaoapp/yao/script"
+	"github.com/yaoapp/yao/setting"
 	"github.com/yaoapp/yao/share"
 	"github.com/yaoapp/yao/store"
 	sui "github.com/yaoapp/yao/sui/api"
@@ -439,6 +440,14 @@ func Load(cfg config.Config, options LoadOption, progressCallback ...func(string
 		warnings = append(warnings, Warning{Widget: "MCP Client Registry", Error: err})
 	}
 
+	// Initialize Setting Registry
+	err = loadStep("Setting Registry", func() error {
+		return setting.Init()
+	}, callback)
+	if err != nil {
+		warnings = append(warnings, Warning{Widget: "Setting Registry", Error: err})
+	}
+
 	for name, hook := range LoadHooks {
 		err = hook(cfg)
 		if err != nil {
@@ -696,6 +705,19 @@ func Reload(cfg config.Config, options LoadOption) (err error) {
 		err = mcpclient.Init()
 		if err != nil {
 			printErr(cfg.Mode, "MCP Client Registry", err)
+		}
+	}
+
+	// Reload Setting Registry
+	if setting.Global != nil {
+		err = setting.Global.Reload()
+		if err != nil {
+			printErr(cfg.Mode, "Setting Registry", err)
+		}
+	} else {
+		err = setting.Init()
+		if err != nil {
+			printErr(cfg.Mode, "Setting Registry", err)
 		}
 	}
 

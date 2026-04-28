@@ -1,0 +1,163 @@
+group: setting
+type: process
+desc: |
+  Generic user personalization settings store with three-level scope hierarchy.
+  Stores arbitrary JSON data organized by namespace and scope, with cascading
+  merge support (system ← team ← user, later scope wins).
+
+  Process names follow the pattern "setting.<handler>".
+
+  Scoping model:
+    Three levels, from lowest to highest priority:
+    1. system — Global defaults, shared by all users.
+    2. team — Team-level overrides, shared by team members.
+    3. user — Individual user preferences, highest priority.
+
+  ScopeID structure (used as argument for get, set, delete, listnamespaces):
+    - scope (string, required): Scope level. Values: "system", "team", "user".
+    - team_id (string): Required when scope is "team".
+    - user_id (string): Required when scope is "user".
+    Examples:
+      System scope: {"scope":"system"}
+      Team scope:   {"scope":"team","team_id":"99"}
+      User scope:   {"scope":"user","user_id":"42"}
+
+  Entry structure (returned by set):
+    - namespace (string): Namespace name (e.g. "preferences", "privacy", "models").
+    - scope (ScopeID): The scope this entry belongs to.
+    - data (object): Arbitrary key-value data stored for this namespace.
+    - updated_at (string): ISO 8601 timestamp of last update.
+
+  Namespace convention:
+    Namespaces are free-form strings chosen by the consuming module.
+    Typical examples: "preferences", "privacy", "models", "notifications".
+    Each namespace stores one JSON object (map of string → any).
+    The registry does not enforce any schema — the consuming module defines
+    the expected structure.
+
+  Merge behavior (getmerged):
+    Shallow merge across three scopes: system ← team ← user.
+    For each top-level key, the highest-priority scope's value wins.
+    Example:
+      system: {"theme":"light","lang":"en","font_size":14}
+      team:   {"lang":"zh-CN"}
+      user:   {"theme":"dark"}
+      merged: {"theme":"dark","lang":"zh-CN","font_size":14}
+    If a scope has no data for the namespace, it is skipped.
+    Returns 404 only when no data exists at any scope.
+
+entries:
+  - name: get
+    desc: |
+      Get a namespace entry for a specific scope. Returns the raw data object
+      without any merging. Throws 404 if the namespace does not exist at
+      the given scope.
+    args:
+      - name: scope
+        type: object
+        required: true
+        desc: |
+          ScopeID object identifying the scope.
+          Examples:
+            {"scope":"system"}
+            {"scope":"team","team_id":"99"}
+            {"scope":"user","user_id":"42"}
+      - name: namespace
+        type: string
+        required: true
+        desc: 'Namespace name (e.g. "preferences", "privacy", "models").'
+    return:
+      type: object
+      desc: |
+        The namespace data as a key-value map (not wrapped in Entry).
+        Example: {"theme":"dark","lang":"zh-CN","font_size":14}
+
+  - name: getmerged
+    desc: |
+      Get a namespace with three-level cascade merge: system ← team ← user.
+      Reads data from all three scopes and shallow-merges them, with higher-priority
+      scopes overriding lower ones. Pass empty string for userID or teamID to
+      skip that scope. Throws 404 if no data exists at any scope.
+    args:
+      - name: userID
+        type: string
+        required: true
+        desc: 'User ID. Pass "" (empty string) to skip user scope.'
+      - name: teamID
+        type: string
+        required: true
+        desc: 'Team ID. Pass "" (empty string) to skip team scope.'
+      - name: namespace
+        type: string
+        required: true
+        desc: Namespace name.
+    return:
+      type: object
+      desc: |
+        Shallow-merged data from all available scopes.
+        Example with system={"a":"sys","b":"sys"}, team={"b":"team"}, user={"a":"user"}:
+        Result: {"a":"user","b":"team"}
+
+  - name: set
+    desc: |
+      Set (create or overwrite) a namespace entry for a given scope.
+      Persists to __yao.store and updates __yao.cache.
+      Overwrites any existing data for this scope + namespace combination.
+    args:
+      - name: scope
+        type: object
+        required: true
+        desc: 'ScopeID object. Example: {"scope":"user","user_id":"42"}'
+      - name: namespace
+        type: string
+        required: true
+        desc: Namespace name.
+      - name: data
+        type: object
+        required: true
+        desc: |
+          Key-value data to store. Arbitrary JSON object.
+          Example: {"theme":"dark","lang":"zh-CN","font_size":14}
+    return:
+      type: object
+      desc: |
+        Entry object confirming the write. Fields:
+          - namespace (string)
+          - scope (ScopeID)
+          - data (object): The stored data.
+          - updated_at (string): ISO 8601 timestamp.
+        Example: {"namespace":"preferences","scope":{"scope":"user","user_id":"42"},
+          "data":{"theme":"dark","lang":"zh-CN"},"updated_at":"2025-01-15T10:30:00Z"}
+
+  - name: delete
+    desc: |
+      Delete a namespace entry from a scope. Removes from __yao.store
+      and __yao.cache. Throws 404 if the namespace does not exist at the scope.
+    args:
+      - name: scope
+        type: object
+        required: true
+        desc: 'ScopeID object. Example: {"scope":"system"}'
+      - name: namespace
+        type: string
+        required: true
+        desc: Namespace name to delete.
+    return:
+      type: "null"
+      desc: Returns null on success.
+
+  - name: listnamespaces
+    desc: |
+      List all namespace names stored under a scope. Returns the namespace
+      strings only, not the data. Use "get" to retrieve data for each namespace.
+    args:
+      - name: scope
+        type: object
+        required: true
+        desc: 'ScopeID object. Example: {"scope":"team","team_id":"99"}'
+    return:
+      type: array
+      desc: |
+        Array of namespace name strings.
+        Example: ["preferences","privacy","models"]
+        Returns empty array if no namespaces exist for the scope.

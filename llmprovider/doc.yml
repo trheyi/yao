@@ -1,0 +1,256 @@
+group: llmprovider
+type: process
+desc: |
+  CRUD operations for the LLM Provider Registry. Manages provider connections
+  (OpenAI, Anthropic, Ollama, etc.) with persistence, API key encryption, and
+  lazy connector registration.
+
+  Process names follow the pattern "llmprovider.<handler>".
+
+  Provider structure (returned by get, getmasked, create, update; array elements from list):
+    - key (string): Unique identifier for this provider. Required on create.
+    - connector_id (string): Runtime connector ID, auto-generated.
+      Format: "s.<key>" for system owner, "u<user_id>.<key>" for user owner,
+      "t<team_id>.<key>" for team owner. BuiltIn providers retain their original ID.
+    - name (string): Display name (e.g. "OpenAI", "My Custom Provider").
+    - type (string): Connector protocol type.
+      Values: "openai", "anthropic", "google", "ollama", "custom".
+    - api_url (string): Base API URL (e.g. "https://api.openai.com").
+    - api_key (string): API key. Returned in full by "get"; masked by "getmasked"
+      and "list" (e.g. "sk-***test"). Encrypted at rest with AES-256-GCM.
+    - models (array of ModelInfo): Available models for this provider.
+    - enabled (bool): Whether the provider is active.
+    - status (string): Connection status. Values: "connected", "disconnected", "unconfigured".
+    - is_custom (bool, optional): Whether user manually configured (not from preset).
+    - preset_key (string, optional): Key of the preset this was created from (e.g. "openai").
+    - require_key (bool): Whether an API key is required.
+    - source (string): Origin. Values: "dynamic" (registry-created), "builtin" (loaded from .yao DSL).
+    - owner (ProviderOwner): Ownership information.
+
+  ModelInfo structure (elements of Provider.models):
+    - id (string): Model identifier (e.g. "gpt-4o", "claude-sonnet-4-20250514").
+    - name (string): Human-readable name (e.g. "GPT-4o").
+    - capabilities (array of string): Model capabilities.
+      Known values: "vision", "tool_calls", "streaming", "json", "reasoning".
+    - enabled (bool): Whether this model is active.
+
+  ProviderOwner structure (Provider.owner):
+    - type (string): Scope level. Values: "system", "team", "user".
+    - team_id (string, optional): Required when type is "team".
+    - user_id (string, optional): Required when type is "user".
+
+  ProviderFilter structure (optional argument for list):
+    - source (string, optional): Filter by source.
+      Values: "dynamic" (default when omitted), "builtin", "all".
+    - owner (ProviderOwner, optional): Filter by owner. Omit to include all owners.
+    - enabled (bool, optional): Filter by enabled status. Omit to include both.
+    - type (string, optional): Filter by provider type (e.g. "openai").
+    - preset_key (string, optional): Filter by preset key.
+    - capabilities (array of string, optional): AND filter — matches providers that have
+      at least one model satisfying ALL listed capabilities.
+    - keyword (string, optional): Case-insensitive substring search in key and name.
+
+  ProviderPreset structure (returned by getpresets, getpreset):
+    - key (string): Preset identifier (e.g. "openai", "anthropic", "ollama").
+    - name (string): Display name.
+    - type (string): Connector type.
+    - api_url (string): Default API URL for UI auto-fill.
+    - require_key (bool): Whether API key is required.
+    - is_cloud (bool, optional): Whether this is a cloud-hosted service.
+    - url_editable (bool, optional): Whether the user can modify the URL.
+    - default_models (array of ModelInfo): Suggested models for UI pre-population.
+
+entries:
+  - name: get
+    desc: |
+      Get a provider by key, returning the full Provider object with plaintext API key.
+      Lazily ensures the runtime connector is registered on first access.
+      Throws 404 if the provider key does not exist.
+    args:
+      - name: key
+        type: string
+        required: true
+        desc: Provider key (e.g. "openai", "my-custom-provider").
+    return:
+      type: object
+      desc: |
+        Full Provider object. See Provider structure above.
+        The api_key field contains the decrypted plaintext value.
+        Example: {"key":"openai","connector_id":"s.openai","name":"OpenAI","type":"openai",
+          "api_url":"https://api.openai.com","api_key":"sk-abc123...",
+          "models":[{"id":"gpt-4o","name":"GPT-4o","capabilities":["vision","streaming"],"enabled":true}],
+          "enabled":true,"status":"connected","source":"dynamic",
+          "owner":{"type":"system"}}
+
+  - name: getmasked
+    desc: |
+      Get a provider by key with the API key masked for safe display.
+      Masking rule: keeps last 4 characters visible, replaces every preceding
+      character with "*". Example: "sk-abc123test" (14 chars) → "**********test".
+      Keys with 4 or fewer characters are fully replaced with "*" per character
+      (e.g. "abcd" → "****", "ab" → "**").
+      Throws 404 if the provider key does not exist.
+    args:
+      - name: key
+        type: string
+        required: true
+        desc: Provider key.
+    return:
+      type: object
+      desc: |
+        Provider object with api_key masked. All other fields are identical to "get".
+        Example api_key value: "**********test" (for a 14-char key)
+
+  - name: create
+    desc: |
+      Create a new LLM provider. Persists to __yao.store (with API key encrypted),
+      registers a runtime connector, and returns the complete Provider object.
+      The "source" field is automatically set to "dynamic".
+      The "connector_id" field is auto-generated based on owner type.
+      Throws 400 if key is empty or already exists.
+    args:
+      - name: data
+        type: object
+        required: true
+        desc: |
+          Provider data object with the following fields:
+            - key (string, required): Unique provider key.
+            - name (string): Display name.
+            - type (string): Connector type ("openai", "anthropic", etc.).
+            - api_url (string): Base API URL.
+            - api_key (string): API key (will be encrypted for storage).
+            - models (array of ModelInfo): Model list.
+            - enabled (bool): Active status (default false).
+            - require_key (bool): Whether API key is required.
+            - owner (ProviderOwner): Ownership. Defaults to {"type":"system"}.
+            - preset_key (string, optional): Preset key if created from template.
+            - is_custom (bool, optional): Custom flag.
+          Example:
+            {"key":"my-openai","name":"My OpenAI","type":"openai",
+             "api_url":"https://api.openai.com","api_key":"sk-abc123",
+             "models":[{"id":"gpt-4o","name":"GPT-4o","capabilities":["streaming","vision"],"enabled":true}],
+             "enabled":true,"require_key":true,"owner":{"type":"user","user_id":"42"}}
+    return:
+      type: object
+      desc: |
+        Created Provider object with connector_id and source="dynamic" populated.
+        The api_key in the response is the plaintext value (not encrypted).
+
+  - name: update
+    desc: |
+      Update an existing provider by key. Replaces the stored provider with the
+      provided data, re-encrypts the API key, hot-replaces the runtime connector,
+      and returns the updated Provider object.
+      IMPORTANT: This is a full replacement, not a partial merge. You must provide
+      all fields you want to keep (name, type, api_url, api_key, models, enabled, etc.).
+      Only "key", "source", "connector_id", and "owner" are automatically preserved
+      from the existing record if omitted or zero-valued in the input.
+      Throws 400 if the provider key is not found.
+    args:
+      - name: key
+        type: string
+        required: true
+        desc: Provider key to update.
+      - name: data
+        type: object
+        required: true
+        desc: |
+          Full Provider data object. Same field structure as "create".
+          The "key" field inside data is ignored; the first argument determines
+          which provider to update. Fields not provided will be reset to zero values
+          (empty string, false, nil), except source, connector_id, and owner which
+          fall back to the existing record's values.
+    return:
+      type: object
+      desc: Updated Provider object with all fields.
+
+  - name: delete
+    desc: |
+      Delete a provider by key. Removes from persistent store, clears cache,
+      and unregisters the runtime connector.
+      Throws 404 if the provider key does not exist.
+    args:
+      - name: key
+        type: string
+        required: true
+        desc: Provider key to delete.
+    return:
+      type: "null"
+      desc: Returns null on success.
+
+  - name: list
+    desc: |
+      List providers matching a filter. Returns an array of Provider objects
+      with API keys masked. When no filter is provided, defaults to source="dynamic"
+      (only registry-created providers). Pass {"source":"all"} to include both
+      dynamic and built-in (.yao DSL) providers.
+    args:
+      - name: filter
+        type: object
+        required: false
+        desc: |
+          ProviderFilter object. All fields are optional:
+            - source (string): "dynamic" (default), "builtin", or "all".
+            - owner (ProviderOwner): {"type":"user","user_id":"42"}.
+            - enabled (bool): true or false.
+            - type (string): e.g. "openai".
+            - preset_key (string): e.g. "openai".
+            - capabilities (array of string): e.g. ["vision","streaming"].
+            - keyword (string): Substring search in key and name.
+          Example: {"source":"all","type":"openai","capabilities":["vision"]}
+          Omit this argument entirely to list all dynamic providers.
+    return:
+      type: array
+      desc: |
+        Array of Provider objects with api_key masked.
+        May be empty if no providers match the filter.
+
+  - name: getsetting
+    desc: |
+      Get the runtime connector setting map for a provider. This returns the
+      low-level connection parameters as used by the connector engine.
+      Throws 404 if the provider key does not exist.
+    args:
+      - name: key
+        type: string
+        required: true
+        desc: Provider key.
+    return:
+      type: object
+      desc: |
+        Key-value map of connector settings. Typical fields:
+          - host (string): API host URL.
+          - model (string): Default model ID.
+          - key (string): API key (plaintext).
+        Exact fields depend on connector type.
+        Example: {"host":"https://api.openai.com","model":"gpt-4o","key":"sk-abc123"}
+
+  - name: getpresets
+    desc: |
+      Get all provider presets. Presets are static UI-only templates loaded from
+      the embedded presets.yml at compile time. They do not participate in runtime
+      logic — only used for UI form auto-filling when creating a new provider.
+    args: []
+    return:
+      type: array
+      desc: |
+        Array of ProviderPreset objects. See ProviderPreset structure above.
+        Currently includes: openai, anthropic, ollama, azure, yaoagents.
+        Example element:
+          {"key":"openai","name":"OpenAI","type":"openai",
+           "api_url":"https://api.openai.com","require_key":true,
+           "default_models":[{"id":"gpt-4o","name":"GPT-4o",
+             "capabilities":["vision","tool_calls","streaming","json"],"enabled":true}]}
+
+  - name: getpreset
+    desc: |
+      Get a single provider preset by key.
+      Throws 404 if the preset key does not exist.
+    args:
+      - name: key
+        type: string
+        required: true
+        desc: 'Preset key. Available keys: "openai", "anthropic", "ollama", "azure", "yaoagents".'
+    return:
+      type: object
+      desc: ProviderPreset object. See ProviderPreset structure above.
