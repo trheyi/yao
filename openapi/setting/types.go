@@ -53,3 +53,31 @@ type CheckUpdateResult struct {
 	LatestVersion  string `json:"latest_version,omitempty"`
 	DownloadURL    string `json:"download_url,omitempty"`
 }
+
+// ---------------------------------------------------------------------------
+// Cloud Service
+// ---------------------------------------------------------------------------
+
+// CloudRegion is a static entry loaded from cloud_presets.yml.
+type CloudRegion struct {
+	Key     string            `json:"key"     yaml:"key"`
+	Label   map[string]string `json:"label"   yaml:"label"`
+	APIURL  string            `json:"api_url" yaml:"api_url"`
+	Default bool              `json:"default,omitempty" yaml:"default"`
+}
+
+// CloudPageData is the response for GET /setting/cloud.
+type CloudPageData struct {
+	Regions []CloudRegion `json:"regions"`
+	Region  string        `json:"region"`
+	APIURL  string        `json:"api_url"`
+	APIKey  string        `json:"api_key"`
+	Status  string        `json:"status"`
+}
+
+// CloudTestResult is the response for POST /setting/cloud/test.
+type CloudTestResult struct {
+	Success   bool   `json:"success"`
+	Message   string `json:"message"`
+	LatencyMs int64  `json:"latency_ms,omitempty"`
+}
