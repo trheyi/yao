@@ -179,3 +179,43 @@ type SmtpTestResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
+
+// ---------------------------------------------------------------------------
+// Sandbox
+// ---------------------------------------------------------------------------
+
+type ComputerNode struct {
+	NodeID           string `json:"node_id"`
+	DisplayName      string `json:"display_name"`
+	Kind             string `json:"kind"`
+	OS               string `json:"os"`
+	Arch             string `json:"arch"`
+	CPU              int    `json:"cpu"`
+	MemoryGB         int    `json:"memory_gb"`
+	DockerVersion    string `json:"docker_version,omitempty"`
+	RunningSandboxes int    `json:"running_sandboxes"`
+	Online           bool   `json:"online"`
+}
+
+type SandboxRegistryConfig struct {
+	RegistryURL string `json:"registry_url"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+}
+
+type SandboxImage struct {
+	ID             string   `json:"id"`
+	AssistantNames []string `json:"assistant_names"`
+	ImageName      string   `json:"image_name"`
+	Tag            string   `json:"tag"`
+	SizeMB         int      `json:"size_mb"`
+	Status         string   `json:"status"`
+	Progress       *int     `json:"progress,omitempty"`
+	ErrorMessage   string   `json:"error_message,omitempty"`
+}
+
+type SandboxPageData struct {
+	Nodes    []ComputerNode            `json:"nodes"`
+	Registry SandboxRegistryConfig     `json:"registry"`
+	Images   map[string][]SandboxImage `json:"images"`
+}

@@ -11,6 +11,7 @@ OS := $(shell uname)
 
 # ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 TESTFOLDER := $(shell $(GO) list ./... | grep -vE 'examples|openai|aigc|neo|twilio|share*|registry|agent/sandbox/v2' | awk '!/\/tests\// || /openapi\/tests/' | grep -vE 'openapi/tests/(nodes|sandbox|workspace)')
+# Sandbox setting tests (openapi/tests/setting/sandbox_test.go) require Docker + Tai — skipped in CI, run locally only
 # Core tests (exclude AI-related: agent, aigc, openai, KB, sandbox, registry, grpc, and integrations which require external services)
 TESTFOLDER_CORE := $(shell $(GO) list ./... | grep -vE 'examples|openai|aigc|neo|twilio|share*|agent|kb|sandbox|integrations|registry|tai|grpc' | awk '!/\/tests\// || /openapi\/tests/' | grep -vE 'openapi/tests/(nodes|sandbox|workspace)')
 # Agent tests (agent, aigc) - exclude agent/search/handlers/web (requires external API keys), robot packages (tested in robot job), and agent/sandbox/v2 (WIP, has its own job)
@@ -36,7 +37,7 @@ TESTTAGS ?= ""
 unit-test:
 	echo "mode: count" > coverage.out
 	for d in $(TESTFOLDER); do \
-		$(GO) test -tags $(TESTTAGS) -v -covermode=count -coverprofile=profile.out -coverpkg=$$(echo $$d | sed "s/\/test$$//g") -skip='TestMemoryLeak|TestIsolateDisposal|TestLeak_|TestScenario_' $$d > tmp.out; \
+		$(GO) test -tags $(TESTTAGS) -v -covermode=count -coverprofile=profile.out -coverpkg=$$(echo $$d | sed "s/\/test$$//g") -skip='TestMemoryLeak|TestIsolateDisposal|TestLeak_|TestScenario_|TestSandbox' $$d > tmp.out; \
 		cat tmp.out; \
 		if grep -q "^--- FAIL" tmp.out; then \
 			rm tmp.out; \
@@ -68,7 +69,7 @@ unit-test:
 unit-test-core:
 	echo "mode: count" > coverage.out
 	for d in $(TESTFOLDER_CORE); do \
-		$(GO) test -tags $(TESTTAGS) -v -covermode=count -coverprofile=profile.out -coverpkg=$$(echo $$d | sed "s/\/test$$//g") -skip='TestMemoryLeak|TestIsolateDisposal|TestLeak_|TestScenario_' $$d > tmp.out; \
+		$(GO) test -tags $(TESTTAGS) -v -covermode=count -coverprofile=profile.out -coverpkg=$$(echo $$d | sed "s/\/test$$//g") -skip='TestMemoryLeak|TestIsolateDisposal|TestLeak_|TestScenario_|TestSandbox' $$d > tmp.out; \
 		cat tmp.out; \
 		if grep -q "^--- FAIL" tmp.out; then \
 			rm tmp.out; \

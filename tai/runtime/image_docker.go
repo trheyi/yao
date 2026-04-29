@@ -83,7 +83,6 @@ func (d *dockerImage) Pull(ctx context.Context, ref string, opts PullOptions) (<
 		}
 		pullOpts.RegistryAuth = encoded
 	}
-
 	reader, err := d.cli.ImagePull(ctx, ref, pullOpts)
 	if err != nil {
 		return nil, fmt.Errorf("image pull %q: %w", ref, err)

@@ -65,6 +65,14 @@ func Attach(group *gin.RouterGroup, oauth oauthTypes.OAuth) {
 	mcpG.PUT("/servers/:id", handleMCPUpdate)
 	mcpG.DELETE("/servers/:id", handleMCPDelete)
 	mcpG.POST("/test", handleMCPTest)
+
+	sb := group.Group("/sandbox")
+	sb.GET("", handleSandboxGet)
+	sb.PUT("/registry", handleSandboxRegistry)
+	sb.POST("/nodes/:nodeId/images/:imageId/pull", handleSandboxPull)
+	sb.POST("/nodes/:nodeId/images/pull-all", handleSandboxPullAll)
+	sb.DELETE("/nodes/:nodeId/images/:imageId", handleSandboxImageDelete)
+	sb.POST("/nodes/:nodeId/check-docker", handleSandboxCheckDocker)
 }
 
 // requireOwner checks that the current user is the team owner.
