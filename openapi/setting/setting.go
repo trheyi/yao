@@ -36,6 +36,15 @@ func Attach(group *gin.RouterGroup, oauth oauthTypes.OAuth) {
 	cloud.GET("", handleCloudGet)
 	cloud.PUT("", handleCloudUpdate)
 	cloud.POST("/test", handleCloudTest)
+
+	llm := group.Group("/llm")
+	llm.GET("", handleLLMGet)
+	llm.PUT("/roles", handleLLMRoles)
+	llm.POST("/test", handleLLMTest)
+	llm.POST("/providers", handleLLMProviderCreate)
+	llm.PUT("/providers/:key", handleLLMProviderUpdate)
+	llm.DELETE("/providers/:key", handleLLMProviderDelete)
+	llm.POST("/providers/:key/test", handleLLMProviderTest)
 }
 
 // requireOwner checks that the current user is the team owner.

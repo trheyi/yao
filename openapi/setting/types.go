@@ -81,3 +81,14 @@ type CloudTestResult struct {
 	Message   string `json:"message"`
 	LatencyMs int64  `json:"latency_ms,omitempty"`
 }
+
+// ---------------------------------------------------------------------------
+// LLM Providers
+// ---------------------------------------------------------------------------
+
+// LLMPageData is the aggregated response for GET /setting/llm.
+type LLMPageData struct {
+	Providers       []interface{}          `json:"providers"`
+	Roles           map[string]interface{} `json:"roles"`
+	PresetProviders []interface{}          `json:"preset_providers"`
+}

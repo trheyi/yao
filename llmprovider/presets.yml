@@ -1,3 +1,15 @@
+- key: yaoagents
+  name: Yao Agents
+  type: openai
+  api_url: https://api.yaoagents.com
+  require_key: false
+  is_cloud: true
+  default_models:
+    - id: default
+      name: Default
+      capabilities: [vision, tool_calls, streaming]
+      enabled: true
+
 - key: openai
   name: OpenAI
   type: openai
@@ -47,15 +59,3 @@
   require_key: true
   url_editable: true
   default_models: []
-
-- key: yaoagents
-  name: Yao Agents
-  type: openai
-  api_url: https://api.yaoagents.com
-  require_key: false
-  is_cloud: true
-  default_models:
-    - id: default
-      name: Default
-      capabilities: [vision, tool_calls, streaming]
-      enabled: true
