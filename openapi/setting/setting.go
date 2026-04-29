@@ -58,6 +58,13 @@ func Attach(group *gin.RouterGroup, oauth oauthTypes.OAuth) {
 	smtpG.PUT("", handleSmtpUpdate)
 	smtpG.PUT("/toggle", handleSmtpToggle)
 	smtpG.POST("/test", handleSmtpTest)
+
+	mcpG := group.Group("/mcp")
+	mcpG.GET("/servers", handleMCPList)
+	mcpG.POST("/servers", handleMCPCreate)
+	mcpG.PUT("/servers/:id", handleMCPUpdate)
+	mcpG.DELETE("/servers/:id", handleMCPDelete)
+	mcpG.POST("/test", handleMCPTest)
 }
 
 // requireOwner checks that the current user is the team owner.
