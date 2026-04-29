@@ -140,3 +140,42 @@ type SearchTestResult struct {
 	Message   string `json:"message"`
 	LatencyMs int64  `json:"latency_ms,omitempty"`
 }
+
+// ---------------------------------------------------------------------------
+// SMTP
+// ---------------------------------------------------------------------------
+
+type SmtpPreset struct {
+	Key        string            `json:"key"        yaml:"key"`
+	Name       string            `json:"name"       yaml:"name"`
+	Host       string            `json:"host"       yaml:"host"`
+	Port       int               `json:"port"       yaml:"port"`
+	Encryption string            `json:"encryption" yaml:"encryption"`
+	Hint       map[string]string `json:"hint,omitempty" yaml:"hint"`
+	URL        string            `json:"url,omitempty"  yaml:"url"`
+	Default    bool              `json:"default,omitempty" yaml:"default"`
+}
+
+type SmtpConfig struct {
+	Enabled    bool   `json:"enabled"`
+	PresetKey  string `json:"preset_key"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Encryption string `json:"encryption"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	FromName   string `json:"from_name"`
+	FromEmail  string `json:"from_email"`
+	Status     string `json:"status"`
+	LastSentAt string `json:"last_sent_at,omitempty"`
+}
+
+type SmtpPageData struct {
+	Presets []SmtpPreset `json:"presets"`
+	Config  SmtpConfig   `json:"config"`
+}
+
+type SmtpTestResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}

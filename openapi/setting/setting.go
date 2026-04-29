@@ -52,6 +52,12 @@ func Attach(group *gin.RouterGroup, oauth oauthTypes.OAuth) {
 	search.PUT("/providers/:key/toggle", handleSearchProviderToggle)
 	search.POST("/providers/:key/test", handleSearchProviderTest)
 	search.PUT("/tool-assignment", handleSearchToolAssignment)
+
+	smtpG := group.Group("/smtp")
+	smtpG.GET("", handleSmtpGet)
+	smtpG.PUT("", handleSmtpUpdate)
+	smtpG.PUT("/toggle", handleSmtpToggle)
+	smtpG.POST("/test", handleSmtpTest)
 }
 
 // requireOwner checks that the current user is the team owner.
