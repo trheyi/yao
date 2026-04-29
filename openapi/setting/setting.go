@@ -45,6 +45,13 @@ func Attach(group *gin.RouterGroup, oauth oauthTypes.OAuth) {
 	llm.PUT("/providers/:key", handleLLMProviderUpdate)
 	llm.DELETE("/providers/:key", handleLLMProviderDelete)
 	llm.POST("/providers/:key/test", handleLLMProviderTest)
+
+	search := group.Group("/search")
+	search.GET("", handleSearchGet)
+	search.PUT("/providers/:key", handleSearchProviderUpdate)
+	search.PUT("/providers/:key/toggle", handleSearchProviderToggle)
+	search.POST("/providers/:key/test", handleSearchProviderTest)
+	search.PUT("/tool-assignment", handleSearchToolAssignment)
 }
 
 // requireOwner checks that the current user is the team owner.
