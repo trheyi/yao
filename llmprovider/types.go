@@ -1,5 +1,12 @@
 package llmprovider
 
+// Identity abstracts a caller's user/team context for scope-aware lookups.
+// Implemented by oauthTypes.AuthorizedInfo and any struct with UserID/TeamID.
+type Identity interface {
+	GetUserID() string
+	GetTeamID() string
+}
+
 // Provider represents a configured LLM provider (one vendor connection with multiple models).
 // Fields align with the frontend ProviderConfig interface.
 type Provider struct {
@@ -74,9 +81,6 @@ type ProviderTestResult struct {
 	Message   string `json:"message"`
 	LatencyMs int64  `json:"latency_ms,omitempty"`
 }
-
-// RoleAssignment maps model roles to specific provider+model pairs.
-type RoleAssignment map[string]RoleTarget
 
 // RoleTarget identifies a provider and model for a given role.
 type RoleTarget struct {

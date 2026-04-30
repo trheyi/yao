@@ -16,7 +16,7 @@ import (
 	"github.com/yaoapp/yao/setting"
 )
 
-const llmRolesNS = "llm.roles"
+var llmRolesNS = llmprovider.RolesNamespace
 
 func llmEnsureEncKey() {
 	if llmprovider.Global != nil && config.Conf.DB.AESKey != "" {

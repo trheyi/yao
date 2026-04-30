@@ -35,17 +35,43 @@ func defaultModel(p *Provider) string {
 
 // marshalDSL builds a connector DSL JSON from the flat Provider fields.
 func marshalDSL(p *Provider) ([]byte, error) {
+	opts := map[string]interface{}{
+		"host":  p.APIURL,
+		"key":   p.APIKey,
+		"model": defaultModel(p),
+	}
+
+	if caps := aggregateCapabilities(p); len(caps) > 0 {
+		opts["capabilities"] = caps
+	}
+
 	dsl := map[string]interface{}{
-		"type":  p.Type,
-		"name":  p.Name,
-		"label": p.Name,
-		"options": map[string]interface{}{
-			"host":  p.APIURL,
-			"key":   p.APIKey,
-			"model": defaultModel(p),
-		},
+		"type":    p.Type,
+		"name":    p.Name,
+		"label":   p.Name,
+		"options": opts,
 	}
 	return json.Marshal(dsl)
+}
+
+// aggregateCapabilities merges all model capabilities into a single map.
+// Falls back to type-based defaults when no model declares explicit caps.
+func aggregateCapabilities(p *Provider) map[string]bool {
+	caps := make(map[string]bool)
+	for _, m := range p.Models {
+		for _, c := range m.Capabilities {
+			caps[c] = true
+		}
+	}
+	if len(caps) == 0 {
+		switch p.Type {
+		case "openai", "anthropic":
+			caps["streaming"] = true
+			caps["tool_calls"] = true
+			caps["temperature_adjustable"] = true
+		}
+	}
+	return caps
 }
 
 // ensureConnector makes sure the provider's connector is registered in the runtime.
@@ -78,6 +104,75 @@ func ensureConnector(p *Provider) error {
 	}
 
 	return nil
+}
+
+// ensureModelConnector registers a per-model connector for a dynamic provider.
+// The connector ID format is "{providerConnectorID}:{modelID}".
+func ensureModelConnector(p *Provider, m *ModelInfo) error {
+	if p.Source == ProviderSourceBuiltIn {
+		return nil
+	}
+	if !p.Enabled || !m.Enabled {
+		return nil
+	}
+
+	baseCID := p.ConnectorID
+	if baseCID == "" {
+		baseCID = connectorID(p)
+	}
+	cid := baseCID + ":" + m.ID
+
+	if _, err := connector.Select(cid); err == nil {
+		return nil
+	}
+
+	dslJSON, err := marshalModelDSL(p, m)
+	if err != nil {
+		return fmt.Errorf("ensureModelConnector %s:%s: %w", p.Key, m.ID, err)
+	}
+
+	_, err = connector.LoadSourceSync(dslJSON, cid, "__registry/"+baseCID+"/"+m.ID+".conn.yao")
+	if err != nil {
+		return fmt.Errorf("ensureModelConnector %s:%s: LoadSourceSync: %w", p.Key, m.ID, err)
+	}
+	return nil
+}
+
+// marshalModelDSL builds a connector DSL for a specific model within a provider.
+func marshalModelDSL(p *Provider, m *ModelInfo) ([]byte, error) {
+	caps := make(map[string]bool)
+	for _, c := range m.Capabilities {
+		caps[c] = true
+	}
+	if len(caps) == 0 {
+		switch p.Type {
+		case "openai", "anthropic":
+			caps["streaming"] = true
+			caps["tool_calls"] = true
+			caps["temperature_adjustable"] = true
+		}
+	}
+
+	opts := map[string]interface{}{
+		"host":  p.APIURL,
+		"key":   p.APIKey,
+		"model": m.ID,
+	}
+	if len(caps) > 0 {
+		opts["capabilities"] = caps
+	}
+
+	name := m.Name
+	if name == "" {
+		name = m.ID
+	}
+	dsl := map[string]interface{}{
+		"type":    p.Type,
+		"name":    name,
+		"label":   name,
+		"options": opts,
+	}
+	return json.Marshal(dsl)
 }
 
 // unregisterConnector removes the provider's connector from the runtime.

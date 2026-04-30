@@ -19,6 +19,7 @@ import (
 	"github.com/yaoapp/yao/agent/store/xun"
 	"github.com/yaoapp/yao/agent/types"
 	"github.com/yaoapp/yao/config"
+	"github.com/yaoapp/yao/llmprovider"
 )
 
 var agentDSL *types.DSL
@@ -234,7 +235,7 @@ func initAssistant() error {
 			NeedSearch: agentDSL.System.NeedSearch,
 			Entity:     agentDSL.System.Entity,
 			Vision:     agentDSL.System.Vision,
-			Voice:      agentDSL.System.Voice,
+			Audio:      agentDSL.System.Audio,
 		})
 	}
 
@@ -453,12 +454,50 @@ func GetSearchConfig() *searchTypes.Config {
 	return agentDSL.Search
 }
 
+// SyncLLMDefaults writes the agent.yml system role defaults into setting.Global.
+// Must be called after both llmprovider.Init() and setting.Init() have completed.
+func SyncLLMDefaults() error {
+	if agentDSL == nil || agentDSL.System == nil {
+		return nil
+	}
+	if llmprovider.Global == nil {
+		return fmt.Errorf("llmprovider.Global not initialized")
+	}
+	roles := buildSystemRoles(agentDSL.System)
+	if len(roles) == 0 {
+		return nil
+	}
+	return llmprovider.Global.SetDefaults(roles)
+}
+
 // defaultAssistant get the default assistant
 func defaultAssistant() (*assistant.Assistant, error) {
 	if agentDSL.Uses == nil || agentDSL.Uses.Default == "" {
 		return nil, fmt.Errorf("default assistant not found")
 	}
 	return assistant.Get(agentDSL.Uses.Default)
+}
+
+// buildSystemRoles converts the System config block into a role→connectorID map
+// for llmprovider.SetDefaults.
+func buildSystemRoles(sys *types.System) map[string]string {
+	roles := make(map[string]string)
+	add := func(role, cid string) {
+		if cid != "" {
+			roles[role] = cid
+		}
+	}
+	add("default", sys.Default)
+	add("keyword", sys.Keyword)
+	add("querydsl", sys.QueryDSL)
+	add("title", sys.Title)
+	add("prompt", sys.Prompt)
+	add("robot_prompt", sys.RobotPrompt)
+	add("needsearch", sys.NeedSearch)
+	add("entity", sys.Entity)
+	add("vision", sys.Vision)
+	add("audio", sys.Audio)
+	return roles
 }
 
 // resolveEnvStrings resolves $ENV.XXX references in agent.yml string fields.
@@ -475,7 +514,7 @@ func resolveEnvStrings(setting *types.DSL) {
 		setting.System.NeedSearch = helper.EnvString(setting.System.NeedSearch)
 		setting.System.Entity = helper.EnvString(setting.System.Entity)
 		setting.System.Vision = helper.EnvString(setting.System.Vision)
-		setting.System.Voice = helper.EnvString(setting.System.Voice)
+		setting.System.Audio = helper.EnvString(setting.System.Audio)
 	}
 
 	if setting.Uses != nil {

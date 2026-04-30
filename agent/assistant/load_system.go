@@ -12,6 +12,7 @@ import (
 	"github.com/yaoapp/yao/agent/i18n"
 	store "github.com/yaoapp/yao/agent/store/types"
 	"github.com/yaoapp/yao/data"
+	"github.com/yaoapp/yao/llmprovider"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,7 +44,7 @@ type SystemConfig struct {
 	NeedSearch  string // Connector for __yao.needsearch agent
 	Entity      string // Connector for __yao.entity agent
 	Vision      string // Connector for vision capabilities
-	Voice       string // Connector for voice/STT capabilities
+	Audio       string // Connector for audio/STT capabilities
 }
 
 // systemConfig holds the system agents configuration (global variable like others in load.go)
@@ -208,7 +209,7 @@ func loadSystemAgent(id, pathPrefix string) (*Assistant, error) {
 }
 
 // resolveSystemConnector resolves the connector for a system agent
-// Priority: specific agent config > system.default > defaultConnector > fallback to first capable connector
+// Priority: specific agent config > system.default > llmprovider role > defaultConnector > fallback
 func resolveSystemConnector(agentID string) string {
 	// Try specific agent config first
 	if systemConfig != nil {
@@ -245,15 +246,26 @@ func resolveSystemConnector(agentID string) string {
 			if systemConfig.Vision != "" {
 				return systemConfig.Vision
 			}
-		case "__yao.voice":
-			if systemConfig.Voice != "" {
-				return systemConfig.Voice
+		case "__yao.audio":
+			if systemConfig.Audio != "" {
+				return systemConfig.Audio
 			}
 		}
 
 		// Try system default
 		if systemConfig.Default != "" {
 			return systemConfig.Default
+		}
+	}
+
+	// Try unified role resolution: strip __yao. prefix as role name
+	if llmprovider.Global != nil {
+		role := strings.TrimPrefix(agentID, "__yao.")
+		if cid, err := llmprovider.Global.GetRole(role); err == nil && cid != "" {
+			return cid
+		}
+		if cid, err := llmprovider.Global.GetRole("default"); err == nil && cid != "" {
+			return cid
 		}
 	}
 
@@ -267,7 +279,7 @@ func resolveSystemConnector(agentID string) string {
 }
 
 // GetVisionConnector returns the connector for vision capabilities.
-// Priority: system.vision > system.default > defaultConnector > findCapableConnector
+// Priority: system.vision > system.default > llmprovider GetRole("vision") > defaultConnector > findCapableConnector
 func GetVisionConnector() string {
 	if systemConfig != nil {
 		if systemConfig.Vision != "" {
@@ -277,21 +289,31 @@ func GetVisionConnector() string {
 			return systemConfig.Default
 		}
 	}
+	if llmprovider.Global != nil {
+		if cid, err := llmprovider.Global.GetRole("vision"); err == nil && cid != "" {
+			return cid
+		}
+	}
 	if defaultConnector != "" {
 		return defaultConnector
 	}
 	return findCapableConnector()
 }
 
-// GetVoiceConnector returns the connector for voice/STT capabilities.
-// Priority: system.voice > system.default > defaultConnector > findCapableConnector
-func GetVoiceConnector() string {
+// GetAudioConnector returns the connector for audio/STT capabilities.
+// Priority: system.audio > system.default > llmprovider GetRole("audio") > defaultConnector > findCapableConnector
+func GetAudioConnector() string {
 	if systemConfig != nil {
-		if systemConfig.Voice != "" {
-			return systemConfig.Voice
+		if systemConfig.Audio != "" {
+			return systemConfig.Audio
 		}
 		if systemConfig.Default != "" {
 			return systemConfig.Default
+		}
+	}
+	if llmprovider.Global != nil {
+		if cid, err := llmprovider.Global.GetRole("audio"); err == nil && cid != "" {
+			return cid
 		}
 	}
 	if defaultConnector != "" {

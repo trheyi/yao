@@ -102,7 +102,7 @@ type System struct {
 	NeedSearch  string `json:"needsearch,omitempty" yaml:"needsearch,omitempty"`     // Connector for __yao.needsearch agent
 	Entity      string `json:"entity,omitempty" yaml:"entity,omitempty"`             // Connector for __yao.entity agent
 	Vision      string `json:"vision,omitempty" yaml:"vision,omitempty"`             // Connector for vision capabilities
-	Voice       string `json:"voice,omitempty" yaml:"voice,omitempty"`               // Connector for voice/STT capabilities
+	Audio       string `json:"audio,omitempty" yaml:"audio,omitempty"`               // Connector for audio/STT capabilities
 }
 
 // Mention Structure

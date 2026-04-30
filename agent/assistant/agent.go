@@ -15,6 +15,7 @@ import (
 	"github.com/yaoapp/yao/agent/output/message"
 	agentsandbox "github.com/yaoapp/yao/agent/sandbox"
 	sandboxTypes "github.com/yaoapp/yao/agent/sandbox/v2/types"
+	"github.com/yaoapp/yao/llmprovider"
 	infraV2 "github.com/yaoapp/yao/sandbox/v2"
 )
 
@@ -628,7 +629,7 @@ func (ast *Assistant) Stream(ctx *context.Context, inputMessages []context.Messa
 }
 
 // GetConnector get the connector object, capabilities, and error with priority:
-// opts.Connector > ast.Connector > defaultConnector (fallback)
+// opts.Connector > ast.Connector > GetRoleBy("default", identity) > GetRole("default") > error
 // Note: opts.Connector may be set by Create hook's applyOptionsAdjustments
 // Returns: (connector, capabilities, error)
 func (ast *Assistant) GetConnector(ctx *context.Context, opts ...*context.Options) (connector.Connector, *goullm.Capabilities, error) {
@@ -637,6 +638,21 @@ func (ast *Assistant) GetConnector(ctx *context.Context, opts ...*context.Option
 		connectorID = opts[0].Connector
 	}
 
+	// Fallback to unified role resolution via llmprovider (team > user > system)
+	if connectorID == "" && llmprovider.Global != nil {
+		if ctx != nil && ctx.Authorized != nil {
+			if cid, err := llmprovider.Global.GetRoleBy("default", ctx.Authorized); err == nil {
+				connectorID = cid
+			}
+		}
+		if connectorID == "" {
+			if cid, err := llmprovider.Global.GetRole("default"); err == nil {
+				connectorID = cid
+			}
+		}
+	}
+
+	// Legacy fallback
 	if connectorID == "" {
 		connectorID = defaultConnector
 	}

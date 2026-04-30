@@ -125,6 +125,143 @@ func TestGetMasked(t *testing.T) {
 	assert.Contains(t, got.APIKey, "xxxx")
 }
 
+// ---------------------------------------------------------------------------
+// withKey behavior
+// ---------------------------------------------------------------------------
+
+func TestGet_DefaultMasked(t *testing.T) {
+	r := setupRegistry(t)
+	p := testProvider
+	_, err := r.Create(&p)
+	require.NoError(t, err)
+
+	got, err := r.Get("test-openai")
+	require.NoError(t, err)
+	assert.NotEqual(t, "sk-test-xxxxx", got.APIKey, "Get() default should mask APIKey")
+	assert.Contains(t, got.APIKey, "*")
+}
+
+func TestGet_WithKeyTrue(t *testing.T) {
+	r := setupRegistry(t)
+	p := testProvider
+	_, err := r.Create(&p)
+	require.NoError(t, err)
+
+	got, err := r.Get("test-openai", true)
+	require.NoError(t, err)
+	assert.Equal(t, "sk-test-xxxxx", got.APIKey, "Get(key, true) should return plain text APIKey")
+}
+
+func TestGetByConnectorID_DefaultMasked(t *testing.T) {
+	r := setupRegistry(t)
+	p := testProvider
+	created, err := r.Create(&p)
+	require.NoError(t, err)
+
+	got, err := r.GetByConnectorID(created.ConnectorID)
+	require.NoError(t, err)
+	assert.NotEqual(t, "sk-test-xxxxx", got.APIKey, "GetByConnectorID() default should mask")
+	assert.Contains(t, got.APIKey, "*")
+}
+
+func TestGetByConnectorID_WithKeyTrue(t *testing.T) {
+	r := setupRegistry(t)
+	p := testProvider
+	created, err := r.Create(&p)
+	require.NoError(t, err)
+
+	got, err := r.GetByConnectorID(created.ConnectorID, true)
+	require.NoError(t, err)
+	assert.Equal(t, "sk-test-xxxxx", got.APIKey, "GetByConnectorID(cid, true) should return plain text")
+}
+
+func TestList_DefaultMasked(t *testing.T) {
+	r := setupRegistry(t)
+	p := testProvider
+	_, err := r.Create(&p)
+	require.NoError(t, err)
+
+	list, err := r.List(&llmprovider.ProviderFilter{Source: llmprovider.ProviderSourceDynamic})
+	require.NoError(t, err)
+	require.True(t, len(list) > 0)
+
+	for _, item := range list {
+		assert.NotEqual(t, "sk-test-xxxxx", item.APIKey, "List() default should mask all APIKeys")
+	}
+}
+
+func TestList_WithKeyTrue(t *testing.T) {
+	r := setupRegistry(t)
+	p := testProvider
+	_, err := r.Create(&p)
+	require.NoError(t, err)
+
+	list, err := r.List(&llmprovider.ProviderFilter{Source: llmprovider.ProviderSourceDynamic}, true)
+	require.NoError(t, err)
+
+	found := false
+	for _, item := range list {
+		if item.Key == "test-openai" {
+			found = true
+			assert.Equal(t, "sk-test-xxxxx", item.APIKey, "List(filter, true) should return plain text")
+		}
+	}
+	assert.True(t, found)
+}
+
+func TestGetMasked_EqualsGetDefault(t *testing.T) {
+	r := setupRegistry(t)
+	p := testProvider
+	_, err := r.Create(&p)
+	require.NoError(t, err)
+
+	fromGet, err := r.Get("test-openai")
+	require.NoError(t, err)
+
+	fromGetMasked, err := r.GetMasked("test-openai")
+	require.NoError(t, err)
+
+	assert.Equal(t, fromGet.APIKey, fromGetMasked.APIKey, "GetMasked should equal Get (both masked by default)")
+}
+
+func TestListModels_ConnectorHasRealKey(t *testing.T) {
+	r := setupRegistry(t)
+
+	p := llmprovider.Provider{
+		Key:    "realkey-prov",
+		Name:   "RealKey Test",
+		Type:   "openai",
+		APIURL: "https://api.openai.com",
+		APIKey: "sk-real-secret-key-12345",
+		Models: []llmprovider.ModelInfo{
+			{ID: "gpt-4o", Name: "GPT-4o", Capabilities: []string{"streaming"}, Enabled: true},
+		},
+		Enabled: true,
+		Owner:   llmprovider.ProviderOwner{Type: "user", UserID: "rk-user"},
+	}
+	_, err := r.Create(&p)
+	require.NoError(t, err)
+
+	opts := r.ListModelsByUser("rk-user")
+	require.True(t, len(opts) > 0, "should have at least one model option")
+
+	var modelCID string
+	for _, o := range opts {
+		if o.Label == "RealKey Test / GPT-4o" {
+			modelCID = o.Value
+			break
+		}
+	}
+	require.NotEmpty(t, modelCID, "should find the model option")
+
+	conn, err := connector.Select(modelCID)
+	require.NoError(t, err, "model connector should be registered")
+
+	s := conn.Setting()
+	key, _ := s["key"].(string)
+	assert.Equal(t, "sk-real-secret-key-12345", key, "connector should have the real API key, not masked")
+}
+
 func TestGetLazy(t *testing.T) {
 	r := setupRegistry(t)
 
@@ -369,13 +506,13 @@ func TestEncryptionRoundTrip(t *testing.T) {
 	_, err := r.Create(&p)
 	require.NoError(t, err)
 
-	got, err := r.Get("test-encrypted")
+	got, err := r.Get("test-encrypted", true)
 	require.NoError(t, err)
-	assert.Equal(t, "sk-test-xxxxx", got.APIKey, "APIKey should be decrypted on read")
+	assert.Equal(t, "sk-test-xxxxx", got.APIKey, "APIKey should be decrypted on read with withKey=true")
 
-	masked, err := r.GetMasked("test-encrypted")
+	masked, err := r.Get("test-encrypted")
 	require.NoError(t, err)
-	assert.NotEqual(t, "sk-test-xxxxx", masked.APIKey)
+	assert.NotEqual(t, "sk-test-xxxxx", masked.APIKey, "Get without withKey should mask")
 	assert.Contains(t, masked.APIKey, "xxxx")
 
 	// Verify raw store value is encrypted

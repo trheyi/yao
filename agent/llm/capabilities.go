@@ -35,10 +35,46 @@ func GetCapabilitiesFromConn(conn connector.Connector) *goullm.Capabilities {
 			if capabilities, ok := caps.(goullm.Capabilities); ok {
 				return &capabilities
 			}
+			if capsMap, ok := caps.(map[string]interface{}); ok {
+				return capabilitiesFromMap(capsMap)
+			}
 		}
 	}
 
 	return getDefaultCapabilities()
+}
+
+// capabilitiesFromMap converts a JSON-deserialized map into goullm.Capabilities.
+func capabilitiesFromMap(m map[string]interface{}) *goullm.Capabilities {
+	caps := getDefaultCapabilities()
+	if v, ok := m["streaming"].(bool); ok {
+		caps.Streaming = v
+	}
+	if v, ok := m["tool_calls"].(bool); ok {
+		caps.ToolCalls = v
+	}
+	if v, ok := m["vision"]; ok {
+		caps.Vision = v
+	}
+	if v, ok := m["audio"].(bool); ok {
+		caps.Audio = v
+	}
+	if v, ok := m["stt"].(bool); ok {
+		caps.STT = v
+	}
+	if v, ok := m["reasoning"].(bool); ok {
+		caps.Reasoning = v
+	}
+	if v, ok := m["json"].(bool); ok {
+		caps.JSON = v
+	}
+	if v, ok := m["multimodal"].(bool); ok {
+		caps.Multimodal = v
+	}
+	if v, ok := m["temperature_adjustable"].(bool); ok {
+		caps.TemperatureAdjustable = v
+	}
+	return caps
 }
 
 // getDefaultCapabilities returns minimal default capabilities
