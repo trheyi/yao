@@ -469,7 +469,7 @@ func handleLLMProviderUpdate(c *gin.Context) {
 
 	llmEnsureEncKey()
 
-	existing, err := llmprovider.Global.Get(key)
+	existing, err := llmprovider.Global.Get(key, true)
 	if err != nil {
 		respondError(c, http.StatusNotFound, fmt.Sprintf("provider \"%s\" not found", key))
 		return
@@ -633,7 +633,7 @@ func handleLLMProviderTest(c *gin.Context) {
 
 	llmEnsureEncKey()
 
-	p, err := llmprovider.Global.Get(key)
+	p, err := llmprovider.Global.Get(key, true)
 	if err != nil {
 		respondError(c, http.StatusNotFound, fmt.Sprintf("provider \"%s\" not found", key))
 		return
