@@ -146,6 +146,13 @@ func (r *Registry) extractConnectorID(target interface{}) string {
 		}
 		return rt.Provider
 	}
+
+	// Builtin providers have model baked into the connector itself;
+	// appending :model would create a non-existent composite ID.
+	if p.Source == ProviderSourceBuiltIn {
+		return p.ConnectorID
+	}
+
 	if rt.Model != "" {
 		return p.ConnectorID + ":" + rt.Model
 	}
