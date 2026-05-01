@@ -18,14 +18,20 @@
   default_models:
     - id: gpt-4o
       name: GPT-4o
+      max_input_tokens: 128000
+      max_output_tokens: 16384
       capabilities: [vision, tool_calls, streaming, json]
       enabled: true
     - id: gpt-4o-mini
       name: GPT-4o Mini
+      max_input_tokens: 128000
+      max_output_tokens: 16384
       capabilities: [tool_calls, streaming, json]
       enabled: true
     - id: o3-mini
       name: o3-mini
+      max_input_tokens: 200000
+      max_output_tokens: 100000
       capabilities: [tool_calls, streaming, reasoning]
       enabled: false
 
@@ -37,10 +43,14 @@
   default_models:
     - id: claude-sonnet-4-20250514
       name: Claude Sonnet 4
+      max_input_tokens: 200000
+      max_output_tokens: 16000
       capabilities: [vision, tool_calls, streaming, reasoning]
       enabled: true
     - id: claude-haiku-3-5-20241022
       name: Claude Haiku 3.5
+      max_input_tokens: 200000
+      max_output_tokens: 8192
       capabilities: [tool_calls, streaming]
       enabled: true
 

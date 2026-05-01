@@ -9,6 +9,7 @@ import (
 	"github.com/yaoapp/xun/dbal/query"
 	"github.com/yaoapp/yao/agent/assistant"
 	storetypes "github.com/yaoapp/yao/agent/store/types"
+	"github.com/yaoapp/yao/llmprovider"
 	"github.com/yaoapp/yao/openapi/oauth/authorized"
 	oauthtypes "github.com/yaoapp/yao/openapi/oauth/types"
 	"github.com/yaoapp/yao/openapi/response"
@@ -378,6 +379,7 @@ func GetMessages(c *gin.Context) {
 	// Collect unique assistant IDs from messages and fetch their info
 	assistantIDs := collectAssistantIDs(messages)
 	assistants := assistant.GetInfoByIDs(assistantIDs, locale)
+	resolveAssistantInfoConnectors(assistants, authInfo)
 
 	response.RespondWithSuccess(c, response.StatusOK, gin.H{
 		"chat_id":    chatID,
@@ -597,4 +599,33 @@ func checkChatPermission(chatStore storetypes.ChatStore, authInfo *oauthtypes.Au
 	}
 
 	return false, nil
+}
+
+// resolveAssistantInfoConnectors resolves use:: prefixed connectors in a map of AssistantInfo.
+func resolveAssistantInfoConnectors(infos map[string]*storetypes.AssistantInfo, identity llmprovider.Identity) {
+	for _, info := range infos {
+		if info == nil || !strings.HasPrefix(info.Connector, "use::") {
+			continue
+		}
+		role := strings.TrimPrefix(info.Connector, "use::")
+		if role == "" {
+			role = "default"
+		}
+		raw := info.Connector
+		if identity != nil && llmprovider.Global != nil {
+			if cid, err := llmprovider.Global.GetRoleBy(role, identity); err == nil && cid != "" {
+				info.ConnectorRaw = raw
+				info.Connector = cid
+				continue
+			}
+		}
+		if llmprovider.Global != nil {
+			if cid, err := llmprovider.Global.GetRole(role); err == nil && cid != "" {
+				info.ConnectorRaw = raw
+				info.Connector = cid
+				continue
+			}
+		}
+		info.ConnectorRaw = raw
+	}
 }

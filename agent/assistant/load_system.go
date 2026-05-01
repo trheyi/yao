@@ -12,7 +12,6 @@ import (
 	"github.com/yaoapp/yao/agent/i18n"
 	store "github.com/yaoapp/yao/agent/store/types"
 	"github.com/yaoapp/yao/data"
-	"github.com/yaoapp/yao/llmprovider"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,7 +34,13 @@ var systemAgents = []string{
 // SystemConfig holds the system agents connector configuration
 // This is set from agent.yml system block
 type SystemConfig struct {
-	Default     string // Default connector for all system agents
+	// Role-level defaults (consumed by buildSystemRoles → SetDefaults)
+	Default string // Default connector for the "default" role
+	Light   string // Default connector for the "light" role
+	Vision  string // Default connector for the "vision" role
+	Audio   string // Default connector for the "audio" role
+
+	// Per-agent overrides (consumed by resolveSystemConnector → ast.Connector)
 	Keyword     string // Connector for __yao.keyword agent
 	QueryDSL    string // Connector for __yao.querydsl agent
 	Title       string // Connector for __yao.title agent
@@ -43,8 +48,6 @@ type SystemConfig struct {
 	RobotPrompt string // Connector for __yao.robot_prompt agent
 	NeedSearch  string // Connector for __yao.needsearch agent
 	Entity      string // Connector for __yao.entity agent
-	Vision      string // Connector for vision capabilities
-	Audio       string // Connector for audio/STT capabilities
 }
 
 // systemConfig holds the system agents configuration (global variable like others in load.go)
@@ -161,10 +164,9 @@ func loadSystemAgent(id, pathPrefix string) (*Assistant, error) {
 		pkgData["type"] = "assistant"
 	}
 
-	// Resolve connector for this system agent
-	connectorID := resolveSystemConnector(id)
-	if connectorID != "" {
-		pkgData["connector"] = connectorID
+	// Override connector only if agent.yml has an explicit per-agent setting
+	if override := resolveSystemConnector(id); override != "" {
+		pkgData["connector"] = override
 	}
 
 	// Read prompts.yml from bindata (default prompts)
@@ -208,118 +210,34 @@ func loadSystemAgent(id, pathPrefix string) (*Assistant, error) {
 	return loadMap(pkgData)
 }
 
-// resolveSystemConnector resolves the connector for a system agent
-// Priority: specific agent config > system.default > llmprovider role > defaultConnector > fallback
+// resolveSystemConnector returns an explicit per-agent connector override from agent.yml.
+// Returns empty string if no override exists, so the connector declared in package.yao
+// (e.g. "use::light") is preserved as-is.
 func resolveSystemConnector(agentID string) string {
-	// Try specific agent config first
-	if systemConfig != nil {
-		switch agentID {
-		case "__yao.keyword":
-			if systemConfig.Keyword != "" {
-				return systemConfig.Keyword
-			}
-		case "__yao.querydsl":
-			if systemConfig.QueryDSL != "" {
-				return systemConfig.QueryDSL
-			}
-		case "__yao.title":
-			if systemConfig.Title != "" {
-				return systemConfig.Title
-			}
-		case "__yao.prompt":
-			if systemConfig.Prompt != "" {
-				return systemConfig.Prompt
-			}
-		case "__yao.robot_prompt":
-			if systemConfig.RobotPrompt != "" {
-				return systemConfig.RobotPrompt
-			}
-		case "__yao.needsearch":
-			if systemConfig.NeedSearch != "" {
-				return systemConfig.NeedSearch
-			}
-		case "__yao.entity":
-			if systemConfig.Entity != "" {
-				return systemConfig.Entity
-			}
-		case "__yao.vision":
-			if systemConfig.Vision != "" {
-				return systemConfig.Vision
-			}
-		case "__yao.audio":
-			if systemConfig.Audio != "" {
-				return systemConfig.Audio
-			}
-		}
-
-		// Try system default
-		if systemConfig.Default != "" {
-			return systemConfig.Default
-		}
+	if systemConfig == nil {
+		return ""
 	}
-
-	// Try unified role resolution: strip __yao. prefix as role name
-	if llmprovider.Global != nil {
-		role := strings.TrimPrefix(agentID, "__yao.")
-		if cid, err := llmprovider.Global.GetRole(role); err == nil && cid != "" {
-			return cid
-		}
-		if cid, err := llmprovider.Global.GetRole("default"); err == nil && cid != "" {
-			return cid
-		}
+	switch agentID {
+	case "__yao.keyword":
+		return systemConfig.Keyword
+	case "__yao.querydsl":
+		return systemConfig.QueryDSL
+	case "__yao.title":
+		return systemConfig.Title
+	case "__yao.prompt":
+		return systemConfig.Prompt
+	case "__yao.robot_prompt":
+		return systemConfig.RobotPrompt
+	case "__yao.needsearch":
+		return systemConfig.NeedSearch
+	case "__yao.entity":
+		return systemConfig.Entity
+	case "__yao.vision":
+		return systemConfig.Vision
+	case "__yao.audio":
+		return systemConfig.Audio
 	}
-
-	// Try global default connector
-	if defaultConnector != "" {
-		return defaultConnector
-	}
-
-	// Fallback: find first connector that supports tool calling
-	return findCapableConnector()
-}
-
-// GetVisionConnector returns the connector for vision capabilities.
-// Priority: system.vision > system.default > llmprovider GetRole("vision") > defaultConnector > findCapableConnector
-func GetVisionConnector() string {
-	if systemConfig != nil {
-		if systemConfig.Vision != "" {
-			return systemConfig.Vision
-		}
-		if systemConfig.Default != "" {
-			return systemConfig.Default
-		}
-	}
-	if llmprovider.Global != nil {
-		if cid, err := llmprovider.Global.GetRole("vision"); err == nil && cid != "" {
-			return cid
-		}
-	}
-	if defaultConnector != "" {
-		return defaultConnector
-	}
-	return findCapableConnector()
-}
-
-// GetAudioConnector returns the connector for audio/STT capabilities.
-// Priority: system.audio > system.default > llmprovider GetRole("audio") > defaultConnector > findCapableConnector
-func GetAudioConnector() string {
-	if systemConfig != nil {
-		if systemConfig.Audio != "" {
-			return systemConfig.Audio
-		}
-		if systemConfig.Default != "" {
-			return systemConfig.Default
-		}
-	}
-	if llmprovider.Global != nil {
-		if cid, err := llmprovider.Global.GetRole("audio"); err == nil && cid != "" {
-			return cid
-		}
-	}
-	if defaultConnector != "" {
-		return defaultConnector
-	}
-	return findCapableConnector()
+	return ""
 }
 
 // findCapableConnector finds the first connector that supports tool calling

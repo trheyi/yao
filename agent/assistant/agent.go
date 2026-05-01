@@ -2,7 +2,6 @@ package assistant
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	jsoniter "github.com/json-iterator/go"
@@ -628,50 +627,40 @@ func (ast *Assistant) Stream(ctx *context.Context, inputMessages []context.Messa
 	return finalResponse, nil
 }
 
-// GetConnector get the connector object, capabilities, and error with priority:
-// opts.Connector > ast.Connector > GetRoleBy("default", identity) > GetRole("default") > error
+// GetConnector get the connector object, capabilities, and error.
+// Priority: opts.Connector > ast.Connector (may be "use::<role>") > "default" role > legacy fallback
 // Note: opts.Connector may be set by Create hook's applyOptionsAdjustments
-// Returns: (connector, capabilities, error)
 func (ast *Assistant) GetConnector(ctx *context.Context, opts ...*context.Options) (connector.Connector, *goullm.Capabilities, error) {
-	connectorID := ast.Connector
+	cid := ast.Connector
 	if len(opts) > 0 && opts[0] != nil && opts[0].Connector != "" {
-		connectorID = opts[0].Connector
+		cid = opts[0].Connector
 	}
 
-	// Fallback to unified role resolution via llmprovider (team > user > system)
-	if connectorID == "" && llmprovider.Global != nil {
-		if ctx != nil && ctx.Authorized != nil {
-			if cid, err := llmprovider.Global.GetRoleBy("default", ctx.Authorized); err == nil {
-				connectorID = cid
-			}
-		}
-		if connectorID == "" {
-			if cid, err := llmprovider.Global.GetRole("default"); err == nil {
-				connectorID = cid
-			}
-		}
+	// Extract identity for role-based resolution
+	var identity llmprovider.Identity
+	if ctx != nil && ctx.Authorized != nil {
+		identity = ctx.Authorized
+	}
+
+	// Unified resolution: explicit connector / use:: prefix / empty → all handled
+	conn, caps, err := llm.ResolveConnector(cid, identity)
+	if err == nil {
+		return conn, caps, nil
 	}
 
 	// Legacy fallback
-	if connectorID == "" {
-		connectorID = defaultConnector
+	if defaultConnector != "" {
+		if conn, err := connector.Select(defaultConnector); err == nil {
+			return conn, llm.GetCapabilitiesFromConn(conn), nil
+		}
+	}
+	if fallback := findCapableConnector(); fallback != "" {
+		if conn, err := connector.Select(fallback); err == nil {
+			return conn, llm.GetCapabilitiesFromConn(conn), nil
+		}
 	}
 
-	if connectorID == "" {
-		return nil, nil, fmt.Errorf("connector not specified")
-	}
-
-	conn, err := connector.Select(connectorID)
-	if err != nil && connectorID != defaultConnector && defaultConnector != "" {
-		log.Printf("[Assistant] connector %q not found, falling back to default %q", connectorID, defaultConnector)
-		conn, err = connector.Select(defaultConnector)
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-
-	capabilities := llm.GetCapabilitiesFromConn(conn)
-	return conn, capabilities, nil
+	return nil, nil, fmt.Errorf("connector not specified")
 }
 
 // Info get the assistant information

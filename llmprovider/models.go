@@ -310,10 +310,17 @@ func ownerMatch(po, want *ProviderOwner) bool {
 	return po.Type == "user" && po.UserID == want.UserID
 }
 
-// capabilitiesFromConn extracts *llm.Capabilities from a connector's settings.
+// capabilitiesFromConn extracts *llm.Capabilities from a connector.
+// Prefers LLMConnector.GetCapabilities() when available.
 func capabilitiesFromConn(conn connector.Connector) *goullm.Capabilities {
 	if conn == nil {
 		return defaultCaps()
+	}
+
+	if lc, ok := conn.(goullm.LLMConnector); ok {
+		if caps := lc.GetCapabilities(); caps != nil {
+			return caps
+		}
 	}
 
 	settings := conn.Setting()

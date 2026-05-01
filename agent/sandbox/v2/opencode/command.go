@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yaoapp/gou/connector"
+	goullm "github.com/yaoapp/gou/llm"
 	"github.com/yaoapp/gou/store"
 	"github.com/yaoapp/kun/str"
 	agentContext "github.com/yaoapp/yao/agent/context"
@@ -399,6 +400,11 @@ func injectRoleEnvVars(env map[string]string, req *types.StreamRequest) {
 func connectorHost(c connector.Connector) string {
 	if c == nil {
 		return ""
+	}
+	if lc, ok := c.(goullm.LLMConnector); ok {
+		if u := lc.GetURL(); u != "" {
+			return strings.TrimSpace(u)
+		}
 	}
 	host, _ := c.Setting()["host"].(string)
 	return strings.TrimSpace(host)

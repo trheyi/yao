@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yaoapp/gou/connector"
+	goullm "github.com/yaoapp/gou/llm"
 	"github.com/yaoapp/kun/log"
 	agentContext "github.com/yaoapp/yao/agent/context"
 	"github.com/yaoapp/yao/agent/output/message"
@@ -184,11 +185,13 @@ func (r *Runner) Cleanup(ctx context.Context, computer infra.Computer) error {
 }
 
 type a2oConnectorConfig struct {
-	Backend string                         `json:"backend"`
-	Model   string                         `json:"model"`
-	APIKey  string                         `json:"api_key"`
-	Options map[string]interface{}         `json:"options,omitempty"`
-	Routes  map[string]*a2oConnectorConfig `json:"routes,omitempty"`
+	Backend         string                         `json:"backend"`
+	Model           string                         `json:"model"`
+	APIKey          string                         `json:"api_key"`
+	AuthMode        string                         `json:"auth_mode,omitempty"`
+	MaxOutputTokens int                            `json:"max_output_tokens,omitempty"`
+	Options         map[string]interface{}         `json:"options,omitempty"`
+	Routes          map[string]*a2oConnectorConfig `json:"routes,omitempty"`
 }
 
 func buildSingleA2OConfig(conn connector.Connector) *a2oConnectorConfig {
@@ -199,27 +202,33 @@ func buildSingleA2OConfig(conn connector.Connector) *a2oConnectorConfig {
 
 	cfg := &a2oConnectorConfig{}
 
-	if host, ok := settings["host"].(string); ok && host != "" {
-		cfg.Backend = connector.BuildAPIURL(host, "/chat/completions")
-	} else if proxy, ok := settings["proxy"].(string); ok && proxy != "" {
-		cfg.Backend = connector.BuildAPIURL(proxy, "/chat/completions")
-	}
-	if model, ok := settings["model"].(string); ok && model != "" {
-		cfg.Model = model
-	}
-	if key, ok := settings["key"].(string); ok && key != "" {
-		cfg.APIKey = key
-	}
-
-	extra := make(map[string]interface{})
-	for k, v := range settings {
-		switch k {
-		case "host", "model", "key", "proxy", "type":
-			continue
-		default:
-			extra[k] = v
+	// Extract standard fields via LLMConnector methods when available
+	if lc, ok := conn.(goullm.LLMConnector); ok {
+		if url := lc.GetURL(); url != "" {
+			cfg.Backend = connector.BuildAPIURL(url, "/chat/completions")
+		}
+		cfg.Model = lc.GetModel()
+		cfg.APIKey = lc.GetKey()
+		cfg.AuthMode = string(lc.GetAuthMode())
+		if caps := lc.GetCapabilities(); caps != nil && caps.MaxOutputTokens > 0 {
+			cfg.MaxOutputTokens = caps.MaxOutputTokens
+		}
+	} else {
+		if host, ok := settings["host"].(string); ok && host != "" {
+			cfg.Backend = connector.BuildAPIURL(host, "/chat/completions")
+		} else if proxy, ok := settings["proxy"].(string); ok && proxy != "" {
+			cfg.Backend = connector.BuildAPIURL(proxy, "/chat/completions")
+		}
+		if model, ok := settings["model"].(string); ok && model != "" {
+			cfg.Model = model
+		}
+		if key, ok := settings["key"].(string); ok && key != "" {
+			cfg.APIKey = key
 		}
 	}
+
+	// Whitelist-filter remaining settings for the options field
+	extra := connector.FilterRequestBodyParams(settings, conn)
 	if len(extra) > 0 {
 		cfg.Options = extra
 	}

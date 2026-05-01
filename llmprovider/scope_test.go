@@ -245,7 +245,7 @@ func TestGetRoleBy_TeamPriority(t *testing.T) {
 	info := &oauthTypes.AuthorizedInfo{UserID: "u1", TeamID: "grb-t1"}
 	cid, err := r.GetRoleBy("default", info)
 	require.NoError(t, err)
-	assert.Equal(t, teamP.ConnectorID, cid, "should resolve via team scope when TeamID is set")
+	assert.Equal(t, teamP.ConnectorID+":gpt-4o", cid, "should resolve via team scope when TeamID is set")
 }
 
 func TestGetRoleBy_UserFallback(t *testing.T) {
@@ -272,7 +272,7 @@ func TestGetRoleBy_UserFallback(t *testing.T) {
 	info := &oauthTypes.AuthorizedInfo{UserID: "grbu-u1"}
 	cid, err := r.GetRoleBy("default", info)
 	require.NoError(t, err)
-	assert.Equal(t, userP.ConnectorID, cid, "should resolve via user scope when no TeamID")
+	assert.Equal(t, userP.ConnectorID+":gpt-4o", cid, "should resolve via user scope when no TeamID")
 }
 
 func TestListRolesBy(t *testing.T) {

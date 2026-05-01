@@ -227,15 +227,17 @@ func initAssistant() error {
 	// Set system agents configuration
 	if agentDSL.System != nil {
 		assistant.SetSystemConfig(&assistant.SystemConfig{
-			Default:    agentDSL.System.Default,
-			Keyword:    agentDSL.System.Keyword,
-			QueryDSL:   agentDSL.System.QueryDSL,
-			Title:      agentDSL.System.Title,
-			Prompt:     agentDSL.System.Prompt,
-			NeedSearch: agentDSL.System.NeedSearch,
-			Entity:     agentDSL.System.Entity,
-			Vision:     agentDSL.System.Vision,
-			Audio:      agentDSL.System.Audio,
+			Default:     agentDSL.System.Default,
+			Light:       agentDSL.System.Light,
+			Vision:      agentDSL.System.Vision,
+			Audio:       agentDSL.System.Audio,
+			Keyword:     agentDSL.System.Keyword,
+			QueryDSL:    agentDSL.System.QueryDSL,
+			Title:       agentDSL.System.Title,
+			Prompt:      agentDSL.System.Prompt,
+			RobotPrompt: agentDSL.System.RobotPrompt,
+			NeedSearch:  agentDSL.System.NeedSearch,
+			Entity:      agentDSL.System.Entity,
 		})
 	}
 
@@ -479,7 +481,8 @@ func defaultAssistant() (*assistant.Assistant, error) {
 }
 
 // buildSystemRoles converts the System config block into a role→connectorID map
-// for llmprovider.SetDefaults.
+// for llmprovider.SetDefaults. Only role-level keys are written here; per-agent
+// overrides (keyword, title, querydsl, etc.) are consumed by resolveSystemConnector.
 func buildSystemRoles(sys *types.System) map[string]string {
 	roles := make(map[string]string)
 	add := func(role, cid string) {
@@ -488,13 +491,7 @@ func buildSystemRoles(sys *types.System) map[string]string {
 		}
 	}
 	add("default", sys.Default)
-	add("keyword", sys.Keyword)
-	add("querydsl", sys.QueryDSL)
-	add("title", sys.Title)
-	add("prompt", sys.Prompt)
-	add("robot_prompt", sys.RobotPrompt)
-	add("needsearch", sys.NeedSearch)
-	add("entity", sys.Entity)
+	add("light", sys.Light)
 	add("vision", sys.Vision)
 	add("audio", sys.Audio)
 	return roles
@@ -506,6 +503,9 @@ func buildSystemRoles(sys *types.System) map[string]string {
 func resolveEnvStrings(setting *types.DSL) {
 	if setting.System != nil {
 		setting.System.Default = helper.EnvString(setting.System.Default)
+		setting.System.Light = helper.EnvString(setting.System.Light)
+		setting.System.Vision = helper.EnvString(setting.System.Vision)
+		setting.System.Audio = helper.EnvString(setting.System.Audio)
 		setting.System.Keyword = helper.EnvString(setting.System.Keyword)
 		setting.System.QueryDSL = helper.EnvString(setting.System.QueryDSL)
 		setting.System.Title = helper.EnvString(setting.System.Title)
@@ -513,8 +513,6 @@ func resolveEnvStrings(setting *types.DSL) {
 		setting.System.RobotPrompt = helper.EnvString(setting.System.RobotPrompt)
 		setting.System.NeedSearch = helper.EnvString(setting.System.NeedSearch)
 		setting.System.Entity = helper.EnvString(setting.System.Entity)
-		setting.System.Vision = helper.EnvString(setting.System.Vision)
-		setting.System.Audio = helper.EnvString(setting.System.Audio)
 	}
 
 	if setting.Uses != nil {

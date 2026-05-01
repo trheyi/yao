@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yaoapp/gou/connector"
+	goullm "github.com/yaoapp/gou/llm"
 	"github.com/yaoapp/gou/store"
 	"github.com/yaoapp/kun/str"
 	agentContext "github.com/yaoapp/yao/agent/context"
@@ -140,9 +141,22 @@ func buildEnv(req *types.StreamRequest, p platform) map[string]string {
 
 	if req.Connector != nil {
 		setting := req.Connector.Setting()
-		host, _ := setting["host"].(string)
-		key, _ := setting["key"].(string)
-		model, _ := setting["model"].(string)
+
+		var host, key, model string
+		if lc, ok := req.Connector.(goullm.LLMConnector); ok {
+			host = lc.GetURL()
+			key = lc.GetKey()
+			model = lc.GetModel()
+		}
+		if host == "" {
+			host, _ = setting["host"].(string)
+		}
+		if key == "" {
+			key, _ = setting["key"].(string)
+		}
+		if model == "" {
+			model, _ = setting["model"].(string)
+		}
 
 		roleConnectors := getRoleConnectors(req)
 		getConn := func(id string) connector.Connector {
@@ -200,6 +214,17 @@ func buildEnv(req *types.StreamRequest, p platform) map[string]string {
 						continue
 					}
 					env[rm.EnvVar] = rm.ModelName
+				}
+			}
+		}
+
+		if lc, ok := req.Connector.(goullm.LLMConnector); ok {
+			if caps := lc.GetCapabilities(); caps != nil {
+				if caps.MaxOutputTokens > 0 {
+					env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = fmt.Sprintf("%d", caps.MaxOutputTokens)
+				}
+				if caps.MaxInputTokens > 0 {
+					env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = fmt.Sprintf("%d", caps.MaxInputTokens)
 				}
 			}
 		}
@@ -415,6 +440,11 @@ var claudeRoleEnvMap = map[string]struct {
 func connectorHost(c connector.Connector) string {
 	if c == nil {
 		return ""
+	}
+	if lc, ok := c.(goullm.LLMConnector); ok {
+		if u := lc.GetURL(); u != "" {
+			return u
+		}
 	}
 	host, _ := c.Setting()["host"].(string)
 	return host

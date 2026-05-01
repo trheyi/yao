@@ -76,7 +76,7 @@ func TestGetRole(t *testing.T) {
 
 	cid, err := r.GetRole("default")
 	require.NoError(t, err)
-	assert.Equal(t, p.ConnectorID, cid)
+	assert.Equal(t, p.ConnectorID+":gpt-4o", cid)
 }
 
 func TestGetRoleByUser(t *testing.T) {
@@ -101,11 +101,11 @@ func TestGetRoleByUser(t *testing.T) {
 
 	cid, err := r.GetRoleByUser("default", "u1")
 	require.NoError(t, err)
-	assert.Equal(t, userP.ConnectorID, cid, "user scope should override system")
+	assert.Equal(t, userP.ConnectorID+":gpt-4o", cid, "user scope should override system")
 
 	cidSys, err := r.GetRole("default")
 	require.NoError(t, err)
-	assert.Equal(t, sysP.ConnectorID, cidSys, "system scope should still return system provider")
+	assert.Equal(t, sysP.ConnectorID+":gpt-4o", cidSys, "system scope should still return system provider")
 }
 
 func TestGetRoleByTeam(t *testing.T) {
@@ -130,7 +130,45 @@ func TestGetRoleByTeam(t *testing.T) {
 
 	cid, err := r.GetRoleByTeam("default", "t1")
 	require.NoError(t, err)
-	assert.Equal(t, teamP.ConnectorID, cid, "team scope should override system")
+	assert.Equal(t, teamP.ConnectorID+":gpt-4o", cid, "team scope should override system")
+}
+
+func TestGetRoleIncludesModel(t *testing.T) {
+	r := setupRegistryWithSetting(t)
+	p := createTestProviderForRole(t, r, "model-inc-prov")
+
+	err := r.SetDefaults(map[string]string{"default": p.Key})
+	require.NoError(t, err)
+
+	cid, err := r.GetRole("default")
+	require.NoError(t, err)
+	assert.Contains(t, cid, ":", "connector ID should contain ':' separator for model")
+	assert.Equal(t, p.ConnectorID+":gpt-4o", cid, "should include model suffix")
+}
+
+func TestGetRoleNoModel(t *testing.T) {
+	r := setupRegistryWithSetting(t)
+
+	noModelProvider := llmprovider.Provider{
+		Key:     "nomodel-prov",
+		Name:    "No Model Provider",
+		Type:    "openai",
+		APIURL:  "https://api.openai.com",
+		APIKey:  "sk-test",
+		Enabled: true,
+		Models:  []llmprovider.ModelInfo{},
+		Owner:   llmprovider.ProviderOwner{Type: "system"},
+	}
+	created, err := r.Create(&noModelProvider)
+	require.NoError(t, err)
+
+	err = r.SetDefaults(map[string]string{"default": created.Key})
+	require.NoError(t, err)
+
+	cid, err := r.GetRole("default")
+	require.NoError(t, err)
+	assert.Equal(t, created.ConnectorID, cid, "should return base connector ID without model when no models defined")
+	assert.NotContains(t, cid, ":", "should not contain model separator")
 }
 
 func TestGetRoleNotConfigured(t *testing.T) {
@@ -195,7 +233,7 @@ func TestProcessGetRole(t *testing.T) {
 	proc := process.New("llmprovider.getrole", "default")
 	result, err := proc.Exec()
 	require.NoError(t, err)
-	assert.Equal(t, p.ConnectorID, result)
+	assert.Equal(t, p.ConnectorID+":gpt-4o", result)
 }
 
 func TestProcessListRoles(t *testing.T) {

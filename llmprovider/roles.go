@@ -141,8 +141,13 @@ func (r *Registry) extractConnectorID(target interface{}) string {
 
 	p, err := r.Get(rt.Provider, true)
 	if err != nil {
-		// Builtin providers: Key == ConnectorID
+		if rt.Model != "" {
+			return rt.Provider + ":" + rt.Model
+		}
 		return rt.Provider
+	}
+	if rt.Model != "" {
+		return p.ConnectorID + ":" + rt.Model
 	}
 	return p.ConnectorID
 }

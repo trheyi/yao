@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/yaoapp/gou/connector"
+	goullm "github.com/yaoapp/gou/llm"
 	"github.com/yaoapp/yao/agent/sandbox/v2/types"
 )
 
@@ -78,8 +79,18 @@ func buildOpenCodeConfig(req *types.PrepareRequest, mcpServers []types.MCPServer
 // For custom hosts (OpenAI-compatible proxies), we pass the bare host URL.
 func buildProviderConfig(conn connector.Connector) (providerID string, cfg map[string]any, model string) {
 	setting := conn.Setting()
-	host, _ := setting["host"].(string)
-	modelName, _ := setting["model"].(string)
+
+	var host, modelName string
+	if lc, ok := conn.(goullm.LLMConnector); ok {
+		host = lc.GetURL()
+		modelName = lc.GetModel()
+	}
+	if host == "" {
+		host, _ = setting["host"].(string)
+	}
+	if modelName == "" {
+		modelName, _ = setting["model"].(string)
+	}
 
 	opts := map[string]any{
 		"apiKey": "{env:YAO_PROVIDER_KEY}",
@@ -121,6 +132,21 @@ func buildProviderConfig(conn connector.Connector) (providerID string, cfg map[s
 	modelOpts := buildModelOptions(setting)
 	if len(modelOpts) > 0 {
 		modelCfg["options"] = modelOpts
+	}
+
+	if lc, ok := conn.(goullm.LLMConnector); ok {
+		if caps := lc.GetCapabilities(); caps != nil {
+			limit := map[string]any{}
+			if caps.MaxInputTokens > 0 {
+				limit["context"] = caps.MaxInputTokens
+			}
+			if caps.MaxOutputTokens > 0 {
+				limit["output"] = caps.MaxOutputTokens
+			}
+			if len(limit) > 0 {
+				modelCfg["limit"] = limit
+			}
+		}
 	}
 
 	return "custom", map[string]any{
@@ -307,6 +333,21 @@ func buildRoleProviderConfig(conn connector.Connector, envKeyPrefix string, moda
 	modelCfg := map[string]any{"name": modelName}
 	if len(modalities) > 0 {
 		modelCfg["modalities"] = modalities
+	}
+
+	if lc, ok := conn.(goullm.LLMConnector); ok {
+		if caps := lc.GetCapabilities(); caps != nil {
+			limit := map[string]any{}
+			if caps.MaxInputTokens > 0 {
+				limit["context"] = caps.MaxInputTokens
+			}
+			if caps.MaxOutputTokens > 0 {
+				limit["output"] = caps.MaxOutputTokens
+			}
+			if len(limit) > 0 {
+				modelCfg["limit"] = limit
+			}
+		}
 	}
 
 	if conn.Is(connector.ANTHROPIC) {

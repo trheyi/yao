@@ -20,12 +20,21 @@ func GetCapabilities(connectorID string) *goullm.Capabilities {
 	return GetCapabilitiesFromConn(conn)
 }
 
-// GetCapabilitiesFromConn get the capabilities from a connector instance
+// GetCapabilitiesFromConn get the capabilities from a connector instance.
+// Prefers LLMConnector.GetCapabilities() when available, falls back to Setting() parsing.
 func GetCapabilitiesFromConn(conn connector.Connector) *goullm.Capabilities {
 	if conn == nil {
 		return getDefaultCapabilities()
 	}
 
+	// Prefer typed LLMConnector interface
+	if lc, ok := conn.(goullm.LLMConnector); ok {
+		if caps := lc.GetCapabilities(); caps != nil {
+			return caps
+		}
+	}
+
+	// Fallback to Setting() parsing for non-LLMConnector or nil capabilities
 	settings := conn.Setting()
 	if settings != nil {
 		if caps, ok := settings["capabilities"]; ok {

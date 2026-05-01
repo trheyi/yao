@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/yaoapp/gou/connector"
+	goullm "github.com/yaoapp/gou/llm"
 )
 
 // connectorID builds the runtime ID for registering into connector.Connectors.
@@ -51,6 +52,12 @@ func marshalDSL(p *Provider) ([]byte, error) {
 		"label":   p.Name,
 		"options": opts,
 	}
+
+	// Propagate auth_mode for providers that use non-Bearer authentication
+	if p.PresetKey == "azure" {
+		dsl["auth_mode"] = "api-key"
+	}
+
 	return json.Marshal(dsl)
 }
 
@@ -140,7 +147,7 @@ func ensureModelConnector(p *Provider, m *ModelInfo) error {
 
 // marshalModelDSL builds a connector DSL for a specific model within a provider.
 func marshalModelDSL(p *Provider, m *ModelInfo) ([]byte, error) {
-	caps := make(map[string]bool)
+	caps := make(map[string]interface{})
 	for _, c := range m.Capabilities {
 		caps[c] = true
 	}
@@ -151,6 +158,12 @@ func marshalModelDSL(p *Provider, m *ModelInfo) ([]byte, error) {
 			caps["tool_calls"] = true
 			caps["temperature_adjustable"] = true
 		}
+	}
+	if m.MaxInputTokens > 0 {
+		caps["max_input_tokens"] = m.MaxInputTokens
+	}
+	if m.MaxOutputTokens > 0 {
+		caps["max_output_tokens"] = m.MaxOutputTokens
 	}
 
 	opts := map[string]interface{}{
@@ -172,6 +185,11 @@ func marshalModelDSL(p *Provider, m *ModelInfo) ([]byte, error) {
 		"label":   name,
 		"options": opts,
 	}
+
+	if p.PresetKey == "azure" {
+		dsl["auth_mode"] = "api-key"
+	}
+
 	return json.Marshal(dsl)
 }
 
@@ -228,13 +246,34 @@ func providerFromConnector(id string, conn connector.Connector) Provider {
 	}
 
 	typ := connectorType(conn)
-	apiURL, _ := setting["host"].(string)
-	apiKey, _ := setting["key"].(string)
-	model, _ := setting["model"].(string)
+
+	var apiURL, apiKey, model string
+	if lc, ok := conn.(goullm.LLMConnector); ok {
+		apiURL = lc.GetURL()
+		apiKey = lc.GetKey()
+		model = lc.GetModel()
+	}
+	if apiURL == "" {
+		apiURL, _ = setting["host"].(string)
+	}
+	if apiKey == "" {
+		apiKey, _ = setting["key"].(string)
+	}
+	if model == "" {
+		model, _ = setting["model"].(string)
+	}
 
 	var models []ModelInfo
 	if model != "" {
-		caps := capabilitiesFromSetting(setting)
+		var caps []string
+		if lc, ok := conn.(goullm.LLMConnector); ok {
+			if c := lc.GetCapabilities(); c != nil {
+				caps = capabilitiesFromCapabilities(c)
+			}
+		}
+		if len(caps) == 0 {
+			caps = capabilitiesFromSetting(setting)
+		}
 		models = []ModelInfo{{
 			ID:           model,
 			Name:         model,
@@ -256,6 +295,48 @@ func providerFromConnector(id string, conn connector.Connector) Provider {
 		Source:      ProviderSourceBuiltIn,
 		Owner:       ProviderOwner{Type: "system"},
 	}
+}
+
+// capabilitiesFromCapabilities converts a typed Capabilities struct to a string slice.
+func capabilitiesFromCapabilities(c *goullm.Capabilities) []string {
+	var out []string
+	if c.Streaming {
+		out = append(out, "streaming")
+	}
+	if c.ToolCalls {
+		out = append(out, "tool_calls")
+	}
+	if c.TemperatureAdjustable {
+		out = append(out, "temperature_adjustable")
+	}
+	if c.Vision != nil {
+		switch v := c.Vision.(type) {
+		case bool:
+			if v {
+				out = append(out, "vision")
+			}
+		case string:
+			if v != "" {
+				out = append(out, "vision")
+			}
+		}
+	}
+	if c.Audio {
+		out = append(out, "audio")
+	}
+	if c.STT {
+		out = append(out, "stt")
+	}
+	if c.Reasoning {
+		out = append(out, "reasoning")
+	}
+	if c.JSON {
+		out = append(out, "json")
+	}
+	if c.Multimodal {
+		out = append(out, "multimodal")
+	}
+	return out
 }
 
 func connectorType(conn connector.Connector) string {

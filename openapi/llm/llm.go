@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -46,20 +45,13 @@ func listProviders(c *gin.Context) {
 		}
 	}
 
-	fmt.Printf("[llm/providers] filtersParam=%q\n", filtersParam)
-
 	info := authorized.GetInfo(c)
-	fmt.Printf("[llm/providers] identity: UserID=%q TeamID=%q\n", info.GetUserID(), info.GetTeamID())
 
 	var opts []connector.Option
 	if llmprovider.Global != nil {
 		opts = llmprovider.Global.ListModelsBy(info)
 	} else {
 		opts = connector.AIConnectors
-	}
-	fmt.Printf("[llm/providers] ListModelsBy returned %d options\n", len(opts))
-	for i, o := range opts {
-		fmt.Printf("[llm/providers]   [%d] label=%q value=%q\n", i, o.Label, o.Value)
 	}
 
 	for _, opt := range opts {
@@ -71,19 +63,16 @@ func listProviders(c *gin.Context) {
 			conn, err = connector.Select(opt.Value)
 		}
 		if err != nil {
-			fmt.Printf("[llm/providers] GetModel(%q) FAILED: %v\n", opt.Value, err)
 			continue
 		}
 
 		connType := connectorType(conn)
 		if connType != "openai" && connType != "anthropic" {
-			fmt.Printf("[llm/providers] SKIP %q: type=%q (not openai/anthropic)\n", opt.Value, connType)
 			continue
 		}
 
 		capabilities := getCapabilitiesFromConn(conn)
 		if len(filters) > 0 && !matchesFilters(capabilities, filters) {
-			fmt.Printf("[llm/providers] SKIP %q: caps filter %v not matched (streaming=%v)\n", opt.Value, filters, capabilities["streaming"])
 			continue
 		}
 
@@ -96,7 +85,6 @@ func listProviders(c *gin.Context) {
 		})
 	}
 
-	fmt.Printf("[llm/providers] returning %d providers\n", len(allProviders))
 	response.RespondWithSuccess(c, response.StatusOK, allProviders)
 }
 
