@@ -29,12 +29,14 @@ type Provider struct {
 // ModelInfo describes a single model within a provider.
 // Fields align with the frontend ModelInfo interface.
 type ModelInfo struct {
-	ID              string   `json:"id" yaml:"id"`
-	Name            string   `json:"name" yaml:"name"`
-	Capabilities    []string `json:"capabilities" yaml:"capabilities"`
-	Enabled         bool     `json:"enabled" yaml:"enabled"`
-	MaxInputTokens  int      `json:"max_input_tokens,omitempty" yaml:"max_input_tokens,omitempty"`
-	MaxOutputTokens int      `json:"max_output_tokens,omitempty" yaml:"max_output_tokens,omitempty"`
+	ID              string                 `json:"id" yaml:"id"`
+	Model           string                 `json:"model,omitempty" yaml:"model,omitempty"`
+	Name            string                 `json:"name" yaml:"name"`
+	Capabilities    []string               `json:"capabilities" yaml:"capabilities"`
+	Enabled         bool                   `json:"enabled" yaml:"enabled"`
+	MaxInputTokens  int                    `json:"max_input_tokens,omitempty" yaml:"max_input_tokens,omitempty"`
+	MaxOutputTokens int                    `json:"max_output_tokens,omitempty" yaml:"max_output_tokens,omitempty"`
+	Options         map[string]interface{} `json:"options,omitempty" yaml:"options,omitempty"`
 }
 
 // ProviderOwner identifies who owns a provider.
@@ -69,6 +71,7 @@ type ProviderFilter struct {
 type ProviderPreset struct {
 	Key           string      `json:"key" yaml:"key"`
 	Name          string      `json:"name" yaml:"name"`
+	Locale        string      `json:"locale,omitempty" yaml:"locale,omitempty"`
 	Type          string      `json:"type" yaml:"type"`
 	APIURL        string      `json:"api_url" yaml:"api_url"`
 	RequireKey    bool        `json:"require_key" yaml:"require_key"`

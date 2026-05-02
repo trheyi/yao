@@ -3,8 +3,10 @@ package setting
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -61,6 +63,9 @@ func enrichProvider(p *llmprovider.Provider) map[string]interface{} {
 		if preset := llmprovider.GetPreset(p.PresetKey); preset != nil {
 			m["is_cloud"] = preset.IsCloud
 			m["url_editable"] = preset.URLEditable
+		} else if p.PresetKey == "yaoagents" {
+			m["is_cloud"] = true
+			m["url_editable"] = false
 		}
 	}
 
@@ -113,6 +118,218 @@ func llmValidateKey(providerType, apiURL, apiKey string) error {
 }
 
 // ---------------------------------------------------------------------------
+// Cloud preset helpers
+// ---------------------------------------------------------------------------
+
+var (
+	cloudModelCache    []map[string]interface{}
+	cloudModelCacheAt  time.Time
+	cloudModelCacheURL string
+	cloudModelCacheMu  sync.Mutex
+	cloudModelCacheTTL = 5 * time.Minute
+)
+
+func buildCloudPreset(info *oauthTypes.AuthorizedInfo) {
+	var saved map[string]interface{}
+	if setting.Global != nil {
+		saved, _ = setting.Global.GetMerged(info.UserID, info.TeamID, cloudNS)
+	}
+
+	apiURL := resolveCloudAPIURL(saved)
+	preset := llmprovider.ProviderPreset{
+		Key:        "yaoagents",
+		Name:       "Yao Agents",
+		Type:       "openai",
+		APIURL:     apiURL,
+		RequireKey: false,
+		IsCloud:    true,
+	}
+
+	status, _ := saved["status"].(string)
+	if status == "connected" {
+		if encKey, _ := saved["api_key"].(string); encKey != "" {
+			raw := fetchCloudModels(apiURL, cloudDecrypt(encKey))
+			if len(raw) > 0 {
+				rawJSON, _ := json.Marshal(raw)
+				var models []llmprovider.ModelInfo
+				if err := json.Unmarshal(rawJSON, &models); err == nil {
+					for i := range models {
+						models[i].Enabled = true
+					}
+					preset.DefaultModels = models
+				}
+			}
+		}
+	}
+
+	llmprovider.RegisterPreset(preset)
+}
+
+func resolveCloudAPIURL(saved map[string]interface{}) string {
+	if saved != nil {
+		if v, ok := saved["api_url"].(string); ok && v != "" {
+			return v
+		}
+	}
+	def := cloudDefaultRegion()
+	return def.APIURL
+}
+
+func fetchCloudModels(apiURL, apiKey string) []map[string]interface{} {
+	cloudModelCacheMu.Lock()
+	if cloudModelCache != nil && cloudModelCacheURL == apiURL && time.Since(cloudModelCacheAt) < cloudModelCacheTTL {
+		cached := cloudModelCache
+		cloudModelCacheMu.Unlock()
+		return cached
+	}
+	cloudModelCacheMu.Unlock()
+
+	url := apiURL
+	if strings.HasSuffix(url, "/") {
+		url += "v1/models"
+	} else {
+		url += "/v1/models"
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil
+	}
+
+	var result struct {
+		Data []map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil
+	}
+
+	models := make([]map[string]interface{}, 0, len(result.Data))
+	for _, item := range result.Data {
+		m := mapCloudModel(item)
+		if m != nil {
+			models = append(models, m)
+		}
+	}
+
+	cloudModelCacheMu.Lock()
+	cloudModelCache = models
+	cloudModelCacheAt = time.Now()
+	cloudModelCacheURL = apiURL
+	cloudModelCacheMu.Unlock()
+
+	return models
+}
+
+func mapCloudModel(item map[string]interface{}) map[string]interface{} {
+	id, _ := item["id"].(string)
+	if id == "" {
+		return nil
+	}
+
+	name := id
+	if label, ok := item["label"].(string); ok && label != "" {
+		name = strings.TrimPrefix(label, "Yao Agents / ")
+		name = strings.TrimPrefix(name, "Yao Agents /")
+	}
+
+	caps := make([]string, 0)
+	mode, _ := item["mode"].(string)
+	switch mode {
+	case "embedding":
+		caps = append(caps, "embedding")
+	case "audio_transcription", "audio_speech":
+		caps = append(caps, "audio")
+	case "image_generation":
+		caps = append(caps, "image_generation")
+	default:
+		if getBool(item, "supports_streaming") {
+			caps = append(caps, "streaming")
+		}
+		if getBool(item, "supports_function_calling") {
+			caps = append(caps, "tool_calls")
+		}
+		if getBool(item, "supports_vision") {
+			caps = append(caps, "vision")
+		}
+		if getBool(item, "supports_response_schema") {
+			caps = append(caps, "json")
+		}
+		if getBool(item, "supports_reasoning") {
+			caps = append(caps, "reasoning")
+		}
+		if getBool(item, "supports_audio_input") {
+			caps = append(caps, "audio")
+		}
+	}
+
+	m := map[string]interface{}{
+		"id":           id,
+		"name":         name,
+		"capabilities": caps,
+	}
+
+	if v, ok := getNumber(item, "max_input_tokens"); ok && v > 0 {
+		m["max_input_tokens"] = int(v)
+	}
+	if v, ok := getNumber(item, "max_output_tokens"); ok && v > 0 {
+		m["max_output_tokens"] = int(v)
+	}
+	opts := map[string]interface{}{}
+	if dp, ok := item["params"].(map[string]interface{}); ok {
+		for k, v := range dp {
+			opts[k] = v
+		}
+	}
+	if at, ok := item["api_type"].(string); ok && at != "" {
+		opts["_connector_type"] = at
+	}
+	if len(opts) > 0 {
+		m["options"] = opts
+	}
+
+	return m
+}
+
+func getBool(m map[string]interface{}, key string) bool {
+	if m == nil {
+		return false
+	}
+	v, ok := m[key].(bool)
+	return ok && v
+}
+
+func getNumber(m map[string]interface{}, key string) (float64, bool) {
+	if m == nil {
+		return 0, false
+	}
+	switch v := m[key].(type) {
+	case float64:
+		return v, true
+	case json.Number:
+		f, err := v.Float64()
+		return f, err == nil
+	}
+	return 0, false
+}
+
+// ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
@@ -124,9 +341,10 @@ func handleLLMTest(c *gin.Context) {
 	}
 
 	var input struct {
-		APIURL string `json:"api_url"`
-		APIKey string `json:"api_key"`
-		Type   string `json:"type"`
+		APIURL     string `json:"api_url"`
+		APIKey     string `json:"api_key"`
+		Type       string `json:"type"`
+		RequireKey *bool  `json:"require_key"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		respondError(c, http.StatusBadRequest, "invalid request body")
@@ -134,6 +352,13 @@ func handleLLMTest(c *gin.Context) {
 	}
 	if input.APIURL == "" {
 		respondError(c, http.StatusBadRequest, "api_url is required")
+		return
+	}
+	if input.APIKey == "" && (input.RequireKey == nil || *input.RequireKey) {
+		response.RespondWithSuccess(c, http.StatusOK, llmprovider.ProviderTestResult{
+			Success: false,
+			Message: "API Key is required",
+		})
 		return
 	}
 
@@ -216,7 +441,15 @@ func handleLLMGet(c *gin.Context) {
 		roles = make(map[string]interface{})
 	}
 
-	presetList := llmprovider.GetPresets()
+	buildCloudPreset(info)
+
+	locale := c.Query("locale")
+	var presetList []llmprovider.ProviderPreset
+	if locale != "" {
+		presetList = llmprovider.GetPresetsForLocale(locale)
+	} else {
+		presetList = llmprovider.GetPresets()
+	}
 	presetIface := make([]interface{}, len(presetList))
 	for i, p := range presetList {
 		raw, _ := json.Marshal(p)
@@ -259,6 +492,7 @@ func handleLLMRoles(c *gin.Context) {
 
 	llmEnsureEncKey()
 
+	var staleRoles []string
 	for roleName, target := range body {
 		targetMap, ok := target.(map[string]interface{})
 		if !ok {
@@ -275,16 +509,16 @@ func handleLLMRoles(c *gin.Context) {
 
 		p, err := llmprovider.Global.Get(providerKey)
 		if err != nil {
-			respondError(c, http.StatusBadRequest, fmt.Sprintf("provider \"%s\" not found", providerKey))
-			return
+			staleRoles = append(staleRoles, roleName)
+			continue
 		}
 		if !p.Enabled {
-			respondError(c, http.StatusBadRequest, fmt.Sprintf("provider \"%s\" is not enabled", providerKey))
-			return
+			staleRoles = append(staleRoles, roleName)
+			continue
 		}
 		if err := llmCheckOwnership(p, info); err != nil {
-			respondError(c, http.StatusBadRequest, fmt.Sprintf("provider \"%s\" not found", providerKey))
-			return
+			staleRoles = append(staleRoles, roleName)
+			continue
 		}
 
 		modelFound := false
@@ -295,9 +529,15 @@ func handleLLMRoles(c *gin.Context) {
 			}
 		}
 		if !modelFound {
-			respondError(c, http.StatusBadRequest, fmt.Sprintf("model \"%s\" not found in provider \"%s\"", modelID, providerKey))
-			return
+			staleRoles = append(staleRoles, roleName)
 		}
+	}
+	for _, role := range staleRoles {
+		delete(body, role)
+	}
+	if _, ok := body["default"]; !ok {
+		respondError(c, http.StatusBadRequest, "\"default\" role: the assigned provider no longer exists, please re-select")
+		return
 	}
 
 	if setting.Global == nil {
@@ -344,6 +584,10 @@ func handleLLMProviderCreate(c *gin.Context) {
 
 	if presetKey != "" {
 		preset := llmprovider.GetPreset(presetKey)
+		if preset == nil && presetKey == "yaoagents" {
+			buildCloudPreset(info)
+			preset = llmprovider.GetPreset(presetKey)
+		}
 		if preset == nil {
 			respondError(c, http.StatusBadRequest, fmt.Sprintf("unknown preset: %s", presetKey))
 			return
@@ -376,12 +620,23 @@ func handleLLMProviderCreate(c *gin.Context) {
 			}
 			for _, m := range preset.DefaultModels {
 				if idSet[m.ID] {
+					m.Enabled = true
 					provider.Models = append(provider.Models, m)
 				}
 			}
 		} else {
 			provider.Models = make([]llmprovider.ModelInfo, len(preset.DefaultModels))
 			copy(provider.Models, preset.DefaultModels)
+		}
+
+		if preset.IsCloud && provider.APIKey == "" {
+			var saved map[string]interface{}
+			if setting.Global != nil {
+				saved, _ = setting.Global.GetMerged(info.UserID, info.TeamID, cloudNS)
+			}
+			if encKey, _ := saved["api_key"].(string); encKey != "" {
+				provider.APIKey = cloudDecrypt(encKey)
+			}
 		}
 	} else {
 		provider.IsCustom = true

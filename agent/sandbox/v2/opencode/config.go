@@ -125,13 +125,11 @@ func buildProviderConfig(conn connector.Connector) (providerID string, cfg map[s
 	// Adding "interleaved" is safe for non-thinking models (no-op if absent).
 	modelCfg["interleaved"] = map[string]any{"field": "reasoning_content"}
 
-	// Pass through thinking configuration from the Yao connector so OpenCode
-	// sends it to the upstream API. DeepSeek defaults thinking to "enabled";
-	// without explicitly sending {"thinking":{"type":"disabled"}}, the API
-	// returns reasoning_content that OpenCode (AI SDK bug) fails to replay.
-	modelOpts := buildModelOptions(setting)
-	if len(modelOpts) > 0 {
-		modelCfg["options"] = modelOpts
+	// Forward connector-level request body params (thinking, reasoning, etc.)
+	// to OpenCode model options so they reach the upstream API.
+	connParams := connector.FilterRequestBodyParams(setting, conn)
+	if len(connParams) > 0 {
+		modelCfg["options"] = connParams
 	}
 
 	if lc, ok := conn.(goullm.LLMConnector); ok {
@@ -156,21 +154,6 @@ func buildProviderConfig(conn connector.Connector) (providerID string, cfg map[s
 			modelName: modelCfg,
 		},
 	}, "custom/" + modelName
-}
-
-// buildModelOptions extracts connector-level model options (thinking, etc.)
-// and maps them to the OpenCode model options format.
-func buildModelOptions(setting map[string]any) map[string]any {
-	opts := map[string]any{}
-
-	// Forward thinking configuration as-is (e.g. {"type":"disabled"}).
-	// DeepSeek V4 models default thinking to "enabled"; the only way to
-	// suppress reasoning_content is to explicitly send {"type":"disabled"}.
-	if thinking, ok := setting["thinking"]; ok && thinking != nil {
-		opts["thinking"] = thinking
-	}
-
-	return opts
 }
 
 // isNativeOpenAI returns true if host points to official OpenAI API,

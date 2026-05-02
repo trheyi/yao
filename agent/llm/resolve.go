@@ -83,6 +83,9 @@ func ResolveConnector(connectorID string, identity llmprovider.Identity) (connec
 
 func selectWithCapabilities(connectorID string) (connector.Connector, *goullm.Capabilities, error) {
 	conn, err := connector.Select(connectorID)
+	if err != nil && llmprovider.Global != nil {
+		conn, err = llmprovider.Global.GetModel(connectorID)
+	}
 	if err != nil {
 		return nil, nil, err
 	}

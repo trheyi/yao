@@ -493,16 +493,18 @@ func (p *Provider) streamWithRetry(ctx *context.Context, messages []context.Mess
 				accumulator.role = delta.Role
 			}
 
-			// Handle reasoning content (DeepSeek R1)
-			if delta.ReasoningContent != "" {
-				// Start thinking message if not active
+			reasoningText := delta.ReasoningContent
+			if reasoningText == "" {
+				reasoningText = delta.Reasoning
+			}
+			if reasoningText != "" {
 				if !messageTracker.active || messageTracker.messageType != message.ChunkThinking {
 					messageTracker.startMessage(message.ChunkThinking, handler)
 				}
 
-				accumulator.reasoningContent += delta.ReasoningContent
+				accumulator.reasoningContent += reasoningText
 				if handler != nil {
-					handler(message.ChunkThinking, []byte(delta.ReasoningContent))
+					handler(message.ChunkThinking, []byte(reasoningText))
 					messageTracker.incrementChunk()
 				}
 			}
@@ -995,7 +997,7 @@ func (p *Provider) postWithRetry(ctx *context.Context, messages []context.Messag
 		Model:             fullResp.Model,
 		Role:              string(choice.Message.Role),
 		Content:           content,
-		ReasoningContent:  choice.Message.ReasoningContent,
+		ReasoningContent:  reasoningOrFallback(choice.Message.ReasoningContent, choice.Message.Reasoning),
 		ToolCalls:         choice.Message.ToolCalls,
 		FinishReason:      choice.FinishReason,
 		Usage:             fullResp.Usage,
@@ -1027,12 +1029,6 @@ func (p *Provider) buildRequestBody(messages []context.Message, options *context
 	model, ok := setting["model"].(string)
 	if !ok || model == "" {
 		return nil, fmt.Errorf("model is not set in connector")
-	}
-
-	// Get thinking setting from connector (for models that support reasoning/thinking mode)
-	var thinkingSetting interface{}
-	if thinking, exists := setting["thinking"]; exists {
-		thinkingSetting = thinking
 	}
 
 	// Convert messages to API format
@@ -1199,9 +1195,14 @@ func (p *Provider) buildRequestBody(messages []context.Message, options *context
 		body["audio"] = options.Audio
 	}
 
-	// Add thinking parameter for models that support reasoning/thinking mode
-	if thinkingSetting != nil {
-		body["thinking"] = thinkingSetting
+	// Merge connector-level body params (thinking, reasoning, enable_thinking, etc.)
+	// filtered through the SupportedParams / default whitelist.
+	// CompletionOptions (per-call) take precedence over connector defaults.
+	connParams := connector.FilterRequestBodyParams(setting, p.Connector)
+	for k, v := range connParams {
+		if _, exists := body[k]; !exists {
+			body[k] = v
+		}
 	}
 
 	return body, nil
@@ -1319,4 +1320,11 @@ func setAuthHeaders(req *http.Request, conn connector.Connector, key string) {
 		}
 	}
 	req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", key))
+}
+
+func reasoningOrFallback(primary, fallback string) string {
+	if primary != "" {
+		return primary
+	}
+	return fallback
 }

@@ -926,9 +926,13 @@ func (p *Provider) buildRequestBody(messages []context.Message, options *context
 		body["tool_choice"] = convertToolChoice(options.ToolChoice)
 	}
 
-	// Thinking configuration from connector settings
-	if thinking, exists := setting["thinking"]; exists && thinking != nil {
-		body["thinking"] = thinking
+	// Merge connector-level body params (thinking, etc.)
+	// filtered through the SupportedParams / default whitelist.
+	connParams := connector.FilterRequestBodyParams(setting, p.Connector)
+	for k, v := range connParams {
+		if _, exists := body[k]; !exists {
+			body[k] = v
+		}
 	}
 
 	return body, nil

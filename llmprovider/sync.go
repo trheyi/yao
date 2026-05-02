@@ -166,13 +166,33 @@ func marshalModelDSL(p *Provider, m *ModelInfo) ([]byte, error) {
 		caps["max_output_tokens"] = m.MaxOutputTokens
 	}
 
+	apiModel := m.ID
+	if m.Model != "" {
+		apiModel = m.Model
+	}
 	opts := map[string]interface{}{
 		"host":  p.APIURL,
 		"key":   p.APIKey,
-		"model": m.ID,
+		"model": apiModel,
 	}
 	if len(caps) > 0 {
 		opts["capabilities"] = caps
+	}
+
+	reserved := map[string]bool{"host": true, "key": true, "model": true, "capabilities": true, "_connector_type": true}
+	extraBody := map[string]interface{}{}
+	for k, v := range m.Options {
+		if !reserved[k] {
+			extraBody[k] = v
+		}
+	}
+	if len(extraBody) > 0 {
+		opts["extra_body"] = extraBody
+	}
+
+	connType := p.Type
+	if ct, ok := m.Options["_connector_type"].(string); ok && ct != "" {
+		connType = ct
 	}
 
 	name := m.Name
@@ -180,7 +200,7 @@ func marshalModelDSL(p *Provider, m *ModelInfo) ([]byte, error) {
 		name = m.ID
 	}
 	dsl := map[string]interface{}{
-		"type":    p.Type,
+		"type":    connType,
 		"name":    name,
 		"label":   name,
 		"options": opts,
@@ -202,6 +222,11 @@ func unregisterConnector(p *Provider) error {
 	if cid == "" {
 		cid = connectorID(p)
 	}
+
+	for _, m := range p.Models {
+		_ = connector.Unregister(cid + ":" + m.ID)
+	}
+
 	return connector.Unregister(cid)
 }
 

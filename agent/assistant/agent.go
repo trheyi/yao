@@ -7,6 +7,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	"github.com/yaoapp/gou/connector"
 	goullm "github.com/yaoapp/gou/llm"
+	"github.com/yaoapp/kun/log"
 	"github.com/yaoapp/yao/agent/assistant/handlers"
 	"github.com/yaoapp/yao/agent/context"
 	"github.com/yaoapp/yao/agent/i18n"
@@ -647,15 +648,16 @@ func (ast *Assistant) GetConnector(ctx *context.Context, opts ...*context.Option
 	if err == nil {
 		return conn, caps, nil
 	}
-
 	// Legacy fallback
 	if defaultConnector != "" {
 		if conn, err := connector.Select(defaultConnector); err == nil {
+			log.Warn("[LLM] Connector %s resolve failed, fallback to %s", cid, defaultConnector)
 			return conn, llm.GetCapabilitiesFromConn(conn), nil
 		}
 	}
 	if fallback := findCapableConnector(); fallback != "" {
 		if conn, err := connector.Select(fallback); err == nil {
+			log.Warn("[LLM] Connector %s resolve failed, fallback to %s (auto-detected)", cid, fallback)
 			return conn, llm.GetCapabilitiesFromConn(conn), nil
 		}
 	}
