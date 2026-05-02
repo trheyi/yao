@@ -386,6 +386,12 @@ func cloudDecrypt(value string) string {
 	return dec
 }
 
+// DecryptValue decrypts a value encrypted by cloudEncrypt.
+// Delegates to config.DecryptValue for the actual decryption.
+func DecryptValue(s string) string {
+	return config.DecryptValue(s)
+}
+
 func cloudMaskKey(key string) string {
 	if key == "" {
 		return ""

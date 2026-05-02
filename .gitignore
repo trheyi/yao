@@ -85,3 +85,4 @@ sandbox/v2/*.md
 POSTGRESQL_COMPAT.md
 openapi/setting/*.md
 agent/docs/design/*.md
+tools/README.md

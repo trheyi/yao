@@ -1,0 +1,10 @@
+{
+  "name": "yao-doc",
+  "transport": "process",
+  "description": "Yao process documentation tools",
+  "tools": {
+    "doclist": "tools.doclist",
+    "docinspect": "tools.docinspect",
+    "docvalidate": "tools.docvalidate"
+  }
+}
