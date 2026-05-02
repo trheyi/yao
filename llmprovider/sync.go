@@ -8,14 +8,29 @@ import (
 	goullm "github.com/yaoapp/gou/llm"
 )
 
+// ScopedKey returns a provider key prefixed with the owner scope.
+// This ensures unique keys per user/team in the store.
+//
+//	user  -> "u<userID>.<baseKey>"
+//	team  -> "t<teamID>.<baseKey>"
+//	other -> baseKey (unchanged)
+func ScopedKey(owner *ProviderOwner, baseKey string) string {
+	switch owner.Type {
+	case "user":
+		return "u" + owner.UserID + "." + baseKey
+	case "team":
+		return "t" + owner.TeamID + "." + baseKey
+	default:
+		return baseKey
+	}
+}
+
 // connectorID builds the runtime ID for registering into connector.Connectors.
-// Dynamic providers get an owner prefix to avoid collision with builtin IDs.
+// For user/team providers the Key is already scoped, so use it directly.
 func connectorID(p *Provider) string {
 	switch p.Owner.Type {
-	case "user":
-		return "u" + p.Owner.UserID + "." + p.Key
-	case "team":
-		return "t" + p.Owner.TeamID + "." + p.Key
+	case "user", "team":
+		return p.Key
 	default:
 		return "s." + p.Key
 	}

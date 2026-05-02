@@ -597,7 +597,7 @@ func handleLLMProviderCreate(c *gin.Context) {
 			return
 		}
 
-		provider.Key = presetKey
+		provider.Key = llmprovider.ScopedKey(owner, presetKey)
 		provider.Name = preset.Name
 		provider.Type = preset.Type
 		provider.APIURL = preset.APIURL
@@ -650,7 +650,7 @@ func handleLLMProviderCreate(c *gin.Context) {
 			respondError(c, http.StatusBadRequest, "key is required for custom provider")
 			return
 		}
-		provider.Key = key
+		provider.Key = llmprovider.ScopedKey(owner, key)
 
 		name, _ := body["name"].(string)
 		if name == "" {

@@ -13,6 +13,63 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// ScopedKey
+// ---------------------------------------------------------------------------
+
+func TestScopedKeyFormats(t *testing.T) {
+	assert.Equal(t, "ualice.deepseek", llmprovider.ScopedKey(
+		&llmprovider.ProviderOwner{Type: "user", UserID: "alice"}, "deepseek"))
+	assert.Equal(t, "t9253.deepseek", llmprovider.ScopedKey(
+		&llmprovider.ProviderOwner{Type: "team", TeamID: "9253"}, "deepseek"))
+	assert.Equal(t, "deepseek", llmprovider.ScopedKey(
+		&llmprovider.ProviderOwner{Type: "system"}, "deepseek"))
+	assert.Equal(t, "deepseek", llmprovider.ScopedKey(
+		&llmprovider.ProviderOwner{}, "deepseek"))
+}
+
+func TestDifferentOwnerSameBaseKey(t *testing.T) {
+	r := setupRegistryWithSetting(t)
+
+	ownerA := llmprovider.ProviderOwner{Type: "team", TeamID: "teamA"}
+	ownerB := llmprovider.ProviderOwner{Type: "team", TeamID: "teamB"}
+
+	pA := createOwnedProvider(t, r, "deepseek", ownerA)
+	pB := createOwnedProvider(t, r, "deepseek", ownerB)
+
+	assert.Equal(t, "tteamA.deepseek", pA.Key)
+	assert.Equal(t, "tteamB.deepseek", pB.Key)
+
+	gotA, err := r.Get(pA.Key)
+	require.NoError(t, err)
+	assert.Equal(t, pA.Key, gotA.Key)
+
+	gotB, err := r.Get(pB.Key)
+	require.NoError(t, err)
+	assert.Equal(t, pB.Key, gotB.Key)
+}
+
+func TestSameOwnerDuplicateKey(t *testing.T) {
+	r := setupRegistryWithSetting(t)
+
+	owner := llmprovider.ProviderOwner{Type: "user", UserID: "u1"}
+	_ = createOwnedProvider(t, r, "openai", owner)
+
+	dup := llmprovider.Provider{
+		Key:     llmprovider.ScopedKey(&owner, "openai"),
+		Name:    "Dup",
+		Type:    "openai",
+		APIURL:  "https://api.openai.com",
+		APIKey:  "sk-dup",
+		Enabled: true,
+		Models:  []llmprovider.ModelInfo{{ID: "gpt-4o", Name: "GPT-4o", Enabled: true}},
+		Owner:   owner,
+	}
+	_, err := r.Create(&dup)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+}
+
+// ---------------------------------------------------------------------------
 // Identity interface
 // ---------------------------------------------------------------------------
 
@@ -107,8 +164,9 @@ func TestListModelsBy_UserFallback(t *testing.T) {
 func TestListModelsExpandsMultipleModels(t *testing.T) {
 	r := setupRegistryWithSetting(t)
 
+	owner := llmprovider.ProviderOwner{Type: "user", UserID: "multi-u"}
 	p := llmprovider.Provider{
-		Key:    "multi-model-prov",
+		Key:    llmprovider.ScopedKey(&owner, "multi-model-prov"),
 		Name:   "MultiModel",
 		Type:   "openai",
 		APIURL: "https://api.openai.com",
@@ -119,7 +177,7 @@ func TestListModelsExpandsMultipleModels(t *testing.T) {
 			{ID: "gpt-disabled", Name: "Disabled", Enabled: false},
 		},
 		Enabled: true,
-		Owner:   llmprovider.ProviderOwner{Type: "user", UserID: "multi-u"},
+		Owner:   owner,
 	}
 	_, err := r.Create(&p)
 	require.NoError(t, err)
@@ -143,8 +201,9 @@ func TestListModelsExpandsMultipleModels(t *testing.T) {
 func TestGetModelWithModelLevelCID(t *testing.T) {
 	r := setupRegistryWithSetting(t)
 
+	owner := llmprovider.ProviderOwner{Type: "team", TeamID: "mlcid-t1"}
 	p := llmprovider.Provider{
-		Key:    "mlcid-prov",
+		Key:    llmprovider.ScopedKey(&owner, "mlcid-prov"),
 		Name:   "MLTest",
 		Type:   "openai",
 		APIURL: "https://api.openai.com",
@@ -154,7 +213,7 @@ func TestGetModelWithModelLevelCID(t *testing.T) {
 			{ID: "gpt-4o-mini", Name: "GPT-4o Mini", Enabled: true},
 		},
 		Enabled: true,
-		Owner:   llmprovider.ProviderOwner{Type: "team", TeamID: "mlcid-t1"},
+		Owner:   owner,
 	}
 	created, err := r.Create(&p)
 	require.NoError(t, err)
@@ -186,7 +245,7 @@ func TestGetModelByConnectorIDReverseLookup(t *testing.T) {
 
 	p := createOwnedProvider(t, r, "rev-prov", llmprovider.ProviderOwner{Type: "user", UserID: "u99"})
 	cid := p.ConnectorID
-	assert.NotEqual(t, p.Key, cid, "dynamic provider ConnectorID should differ from Key")
+	assert.Equal(t, p.Key, cid, "dynamic provider ConnectorID should equal scoped Key")
 
 	_ = connector.Unregister(cid)
 
@@ -365,11 +424,11 @@ func TestGetRoleCapabilitiesBy(t *testing.T) {
 // helpers
 // ---------------------------------------------------------------------------
 
-func createOwnedProvider(t *testing.T, r *llmprovider.Registry, key string, owner llmprovider.ProviderOwner) *llmprovider.Provider {
+func createOwnedProvider(t *testing.T, r *llmprovider.Registry, baseKey string, owner llmprovider.ProviderOwner) *llmprovider.Provider {
 	t.Helper()
 	p := llmprovider.Provider{
-		Key:     key,
-		Name:    "Test " + key,
+		Key:     llmprovider.ScopedKey(&owner, baseKey),
+		Name:    "Test " + baseKey,
 		Type:    "openai",
 		APIURL:  "https://api.openai.com",
 		APIKey:  "sk-test-owned",

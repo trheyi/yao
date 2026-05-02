@@ -227,8 +227,9 @@ func TestGetMasked_EqualsGetDefault(t *testing.T) {
 func TestListModels_ConnectorHasRealKey(t *testing.T) {
 	r := setupRegistry(t)
 
+	owner := llmprovider.ProviderOwner{Type: "user", UserID: "rk-user"}
 	p := llmprovider.Provider{
-		Key:    "realkey-prov",
+		Key:    llmprovider.ScopedKey(&owner, "realkey-prov"),
 		Name:   "RealKey Test",
 		Type:   "openai",
 		APIURL: "https://api.openai.com",
@@ -237,7 +238,7 @@ func TestListModels_ConnectorHasRealKey(t *testing.T) {
 			{ID: "gpt-4o", Name: "GPT-4o", Capabilities: []string{"streaming"}, Enabled: true},
 		},
 		Enabled: true,
-		Owner:   llmprovider.ProviderOwner{Type: "user", UserID: "rk-user"},
+		Owner:   owner,
 	}
 	_, err := r.Create(&p)
 	require.NoError(t, err)
@@ -290,13 +291,14 @@ func TestGetLazy(t *testing.T) {
 func TestList(t *testing.T) {
 	r := setupRegistry(t)
 
+	p2Owner := llmprovider.ProviderOwner{Type: "user", UserID: "123"}
 	providers := []llmprovider.Provider{
 		{Key: "p1", Name: "Provider 1", Type: "openai", Enabled: true,
 			Models: []llmprovider.ModelInfo{{ID: "gpt-4o", Name: "GPT-4o", Capabilities: []string{"vision", "tool_calls"}, Enabled: true}},
 			Owner:  llmprovider.ProviderOwner{Type: "system"}},
-		{Key: "p2", Name: "Provider 2", Type: "anthropic", Enabled: false,
+		{Key: llmprovider.ScopedKey(&p2Owner, "p2"), Name: "Provider 2", Type: "anthropic", Enabled: false,
 			Models: []llmprovider.ModelInfo{{ID: "claude-3", Name: "Claude 3", Capabilities: []string{"tool_calls"}, Enabled: true}},
-			Owner:  llmprovider.ProviderOwner{Type: "user", UserID: "123"}},
+			Owner:  p2Owner},
 		{Key: "p3", Name: "Provider 3", Type: "openai", Enabled: true,
 			Models: []llmprovider.ModelInfo{{ID: "gpt-4o-mini", Name: "GPT-4o Mini", Capabilities: []string{"streaming"}, Enabled: true}},
 			Owner:  llmprovider.ProviderOwner{Type: "system"}},
@@ -378,7 +380,7 @@ func TestList(t *testing.T) {
 		require.NoError(t, err)
 		found := false
 		for _, p := range list {
-			if p.Key == "p2" {
+			if p.Name == "Provider 2" {
 				found = true
 			}
 		}
