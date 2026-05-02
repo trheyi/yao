@@ -1084,6 +1084,10 @@ func (p *Provider) buildRequestBody(messages []context.Message, options *context
 			apiMsg["tool_calls"] = msg.ToolCalls
 		}
 
+		if msg.ReasoningContent != "" {
+			apiMsg["reasoning_content"] = msg.ReasoningContent
+		}
+
 		if msg.Refusal != nil {
 			apiMsg["refusal"] = *msg.Refusal
 		}

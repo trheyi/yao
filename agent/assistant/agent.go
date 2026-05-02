@@ -571,11 +571,47 @@ func (ast *Assistant) Stream(ctx *context.Context, inputMessages []context.Messa
 			ast.sendStreamEndOnError(ctx, streamHandler, streamStartTime, err)
 			return nil, err
 		}
+	} else if len(toolCallResponses) > 0 && !ast.HasSandbox() && !ast.isToolLoopDisabled() {
+		// No Next hook + has tool results + not sandbox → tool loop
+		ctx.Logger.Debug("Entering tool loop for tool result processing")
+		loopResponse, loopCompletion, loopTools, err := ast.executeToolLoop(ctx, &ToolLoopParams{
+			CompletionMessages: completionMessages,
+			CompletionOptions:  completionOptions,
+			CompletionResponse: completionResponse,
+			ToolCallResponses:  toolCallResponses,
+			FullMessages:       fullMessages,
+			AgentNode:          agentNode,
+			StreamHandler:      streamHandler,
+			CreateResponse:     createResponse,
+			Opts:               opts,
+		})
+		if err != nil {
+			// Fallback to __yao.loop_fallback delegation
+			ctx.Logger.Warn("Tool loop failed: %v, falling back to loop_fallback", err)
+			fallbackDelegate := ast.buildLoopFallbackDelegate(ctx, fullMessages, completionResponse, toolCallResponses)
+			delegateResponse, delegateErr := ast.handleDelegation(ctx, fallbackDelegate, streamHandler)
+			if delegateErr != nil {
+				ctx.Logger.Warn("loop_fallback also failed: %v, using standard response", delegateErr)
+				finalResponse = ast.buildStandardResponse(&NextProcessContext{
+					Context:            ctx,
+					CompletionResponse: completionResponse,
+					FullMessages:       fullMessages,
+					ToolCallResponses:  toolCallResponses,
+					StreamHandler:      streamHandler,
+					CreateResponse:     createResponse,
+				})
+			} else {
+				finalResponse = delegateResponse
+			}
+		} else {
+			completionResponse = loopCompletion
+			toolCallResponses = loopTools
+			finalResponse = loopResponse
+		}
 	} else {
-		// No Next hook: use standard response
+		// No tool calls, sandbox mode, or loop disabled: standard response
 		finalResponse = ast.buildStandardResponse(&NextProcessContext{
 			Context:            ctx,
-			NextResponse:       nil,
 			CompletionResponse: completionResponse,
 			FullMessages:       fullMessages,
 			ToolCallResponses:  toolCallResponses,
@@ -801,9 +837,10 @@ func (ast *Assistant) buildToolRetryMessages(
 
 	// Add assistant message with tool calls
 	assistantMsg := context.Message{
-		Role:      context.RoleAssistant,
-		Content:   completionResponse.Content,
-		ToolCalls: completionResponse.ToolCalls,
+		Role:             context.RoleAssistant,
+		Content:          completionResponse.Content,
+		ReasoningContent: completionResponse.ReasoningContent,
+		ToolCalls:        completionResponse.ToolCalls,
 	}
 	retryMessages = append(retryMessages, assistantMsg)
 

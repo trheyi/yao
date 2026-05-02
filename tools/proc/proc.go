@@ -18,17 +18,14 @@ var allowedPrefixes = []string{
 	"stores.",
 	"flows.",
 	"scripts.",
-	"services.",
-	"tasks.",
-	"schedules.",
-	"widgets.",
+	"utils.",
+	"http.",
 }
 
 // Explicitly blocked prefixes for safety.
 var blockedPrefixes = []string{
 	"yao.sys.",
 	"yao.env.",
-	"utils.",
 	"tools.",
 }
 

@@ -29,6 +29,7 @@ var systemAgents = []string{
 	"entity",
 	"vision",
 	"fetch",
+	"loop_fallback",
 }
 
 // SystemConfig holds the system agents connector configuration
@@ -42,13 +43,14 @@ type SystemConfig struct {
 	Heavy   string // Default connector for the "heavy" role (complex reasoning)
 
 	// Per-agent overrides (consumed by resolveSystemConnector → ast.Connector)
-	Keyword     string // Connector for __yao.keyword agent
-	QueryDSL    string // Connector for __yao.querydsl agent
-	Title       string // Connector for __yao.title agent
-	Prompt      string // Connector for __yao.prompt agent
-	RobotPrompt string // Connector for __yao.robot_prompt agent
-	NeedSearch  string // Connector for __yao.needsearch agent
-	Entity      string // Connector for __yao.entity agent
+	Keyword      string // Connector for __yao.keyword agent
+	QueryDSL     string // Connector for __yao.querydsl agent
+	Title        string // Connector for __yao.title agent
+	Prompt       string // Connector for __yao.prompt agent
+	RobotPrompt  string // Connector for __yao.robot_prompt agent
+	NeedSearch   string // Connector for __yao.needsearch agent
+	Entity       string // Connector for __yao.entity agent
+	LoopFallback string // Connector for __yao.loop_fallback agent
 }
 
 // systemConfig holds the system agents configuration (global variable like others in load.go)
@@ -237,6 +239,8 @@ func resolveSystemConnector(agentID string) string {
 		return systemConfig.Vision
 	case "__yao.audio":
 		return systemConfig.Audio
+	case "__yao.loop_fallback":
+		return systemConfig.LoopFallback
 	}
 	return ""
 }
