@@ -122,14 +122,15 @@ func buildEnv(req *types.StreamRequest, p platform) map[string]string {
 	// like browsers should be nohup'd; this prevents accidental 2-min hangs.
 	env["OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS"] = "30000"
 
-	if req.Connector != nil {
-		setting := req.Connector.Setting()
+	primaryConn := resolvePrimaryConnector(req.Connector, req.Config)
+	if primaryConn != nil {
+		setting := primaryConn.Setting()
 		key, _ := setting["key"].(string)
 		if key != "" {
 			env["YAO_PROVIDER_KEY"] = key
 		}
 
-		if req.Connector.Is(connector.ANTHROPIC) {
+		if primaryConn.Is(connector.ANTHROPIC) {
 			apiKey, _ := setting["key"].(string)
 			if apiKey != "" {
 				env["ANTHROPIC_API_KEY"] = apiKey
@@ -175,8 +176,9 @@ func buildArgs(req *types.StreamRequest, r *Runner, isContinuation bool, chatID 
 		args = append(args, "--continue", "--session", sessionID)
 	}
 
-	if req.Connector != nil {
-		if mid := connectorModelID(req.Connector); mid != "" {
+	primaryConn := resolvePrimaryConnector(req.Connector, req.Config)
+	if primaryConn != nil {
+		if mid := connectorModelID(primaryConn); mid != "" {
 			args = append(args, "--model", mid)
 		}
 	}
@@ -350,10 +352,16 @@ func shellQuotePowerShell(program string, args ...string) string {
 
 // connectorModelID returns the "provider/model" string matching the
 // provider ID used in opencode.json (see buildProviderConfig).
+// Uses LLMConnector interface first (consistent with buildProviderConfig).
 func connectorModelID(c connector.Connector) string {
-	setting := c.Setting()
-	modelName, _ := setting["model"].(string)
-	host, _ := setting["host"].(string)
+	host := connectorHost(c)
+	var modelName string
+	if lc, ok := c.(goullm.LLMConnector); ok {
+		modelName = lc.GetModel()
+	}
+	if modelName == "" {
+		modelName, _ = c.Setting()["model"].(string)
+	}
 
 	if c.Is(connector.ANTHROPIC) {
 		return "anthropic/" + modelName

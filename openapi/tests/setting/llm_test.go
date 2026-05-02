@@ -278,7 +278,7 @@ func TestLLMProviderDelete(t *testing.T) {
 	rolesPayload := map[string]interface{}{
 		"default": map[string]interface{}{
 			"provider": "anthropic",
-			"model":    "claude-sonnet-4-20250514",
+			"model":    "claude-sonnet-4-6",
 		},
 	}
 	rolesResp := llmPut(t, llmURL(serverURL, "/roles"), token, rolesPayload)

@@ -39,6 +39,7 @@ type SystemConfig struct {
 	Light   string // Default connector for the "light" role
 	Vision  string // Default connector for the "vision" role
 	Audio   string // Default connector for the "audio" role
+	Heavy   string // Default connector for the "heavy" role (complex reasoning)
 
 	// Per-agent overrides (consumed by resolveSystemConnector → ast.Connector)
 	Keyword     string // Connector for __yao.keyword agent

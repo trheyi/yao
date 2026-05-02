@@ -98,6 +98,7 @@ type System struct {
 	Light   string `json:"light,omitempty" yaml:"light,omitempty"`     // Default connector for the "light" role (titles, keywords, summaries)
 	Vision  string `json:"vision,omitempty" yaml:"vision,omitempty"`   // Default connector for the "vision" role
 	Audio   string `json:"audio,omitempty" yaml:"audio,omitempty"`     // Default connector for the "audio" role
+	Heavy   string `json:"heavy,omitempty" yaml:"heavy,omitempty"`     // Default connector for the "heavy" role (complex reasoning)
 
 	// Per-agent overrides (optional, highest priority — bypasses role resolution)
 	Keyword     string `json:"keyword,omitempty" yaml:"keyword,omitempty"`           // Connector for __yao.keyword agent

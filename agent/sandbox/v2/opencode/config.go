@@ -12,9 +12,11 @@ import (
 type roleSpec struct {
 	EnvKeyPrefix string
 	TopLevel     string
-	Modalities   map[string][]string
 }
 
+// openCodeRoleMap lists roles that map to native OpenCode config concepts.
+// "light" → top-level "small_model"; "vision" → env vars only (read.ts hack).
+// "heavy" is handled via resolvePrimaryConnector (becomes the main model).
 var openCodeRoleMap = map[string]roleSpec{
 	"light": {
 		EnvKeyPrefix: "YAO_LIGHT",
@@ -22,17 +24,26 @@ var openCodeRoleMap = map[string]roleSpec{
 	},
 	"vision": {
 		EnvKeyPrefix: "YAO_VISION",
-		Modalities: map[string][]string{
-			"input":  {"text", "image"},
-			"output": {"text"},
-		},
 	},
-	"heavy": {
-		EnvKeyPrefix: "YAO_HEAVY",
-	},
-	"subagent": {
-		EnvKeyPrefix: "YAO_SUBAGENT",
-	},
+}
+
+// resolvePrimaryConnector returns the heavy connector if configured,
+// otherwise falls back to the caller-supplied primary (typically the
+// assistant's default connector). This aligns with OpenCode's semantics
+// where the top-level "model" handles complex coding tasks.
+func resolvePrimaryConnector(primary connector.Connector, cfg *types.SandboxConfig) connector.Connector {
+	if cfg == nil || cfg.Runner.Connectors == nil {
+		return primary
+	}
+	rc, ok := cfg.Runner.Connectors["heavy"]
+	if !ok || rc == nil || rc.Connector == "" {
+		return primary
+	}
+	c, exists := connector.Connectors[rc.Connector]
+	if !exists || c == nil {
+		return primary
+	}
+	return c
 }
 
 // buildOpenCodeConfig generates the opencode.json project configuration.
@@ -47,14 +58,15 @@ func buildOpenCodeConfig(req *types.PrepareRequest, mcpServers []types.MCPServer
 		"permission": map[string]any{"*": "allow"},
 	}
 
-	if req.Connector != nil {
-		providerID, providerCfg, modelStr := buildProviderConfig(req.Connector)
+	primaryConn := resolvePrimaryConnector(req.Connector, req.Config)
+	if primaryConn != nil {
+		providerID, providerCfg, modelStr := buildProviderConfig(primaryConn)
 		cfg["provider"] = map[string]any{providerID: providerCfg}
 		cfg["model"] = modelStr
 		cfg["enabled_providers"] = []string{providerID}
 	}
 
-	injectRoleProviders(cfg, req)
+	injectRoleProviders(cfg, req, primaryConn)
 
 	if len(mcpServers) > 0 {
 		cfg["mcp"] = buildMCPConfig(mcpServers)
@@ -126,7 +138,8 @@ func buildProviderConfig(conn connector.Connector) (providerID string, cfg map[s
 	modelCfg["interleaved"] = map[string]any{"field": "reasoning_content"}
 
 	// Forward connector-level request body params (thinking, reasoning, etc.)
-	// to OpenCode model options so they reach the upstream API.
+	// to OpenCode model options, using the same FilterRequestBodyParams
+	// mechanism as buildRequestBody in yao/agent/llm.
 	connParams := connector.FilterRequestBodyParams(setting, conn)
 	if len(connParams) > 0 {
 		modelCfg["options"] = connParams
@@ -179,9 +192,9 @@ func normalizeBaseURL(host string) string {
 
 // injectRoleProviders iterates openCodeRoleMap and injects provider blocks
 // for every role that has a configured connector. For the "light" role it
-// also sets the top-level "small_model" field. This replaces the old
-// buildSmallModel function and adds support for vision/heavy/subagent roles.
-func injectRoleProviders(cfg map[string]any, req *types.PrepareRequest) {
+// also sets the top-level "small_model" field. primaryConn is the resolved
+// primary connector (may be heavy or default) used for sameProvider checks.
+func injectRoleProviders(cfg map[string]any, req *types.PrepareRequest, primaryConn connector.Connector) {
 	if req.Config == nil || req.Config.Runner.Connectors == nil {
 		return
 	}
@@ -200,9 +213,9 @@ func injectRoleProviders(cfg map[string]any, req *types.PrepareRequest) {
 
 	primaryHost := ""
 	primaryType := ""
-	if req.Connector != nil {
-		primaryHost = connectorHost(req.Connector)
-		if req.Connector.Is(connector.ANTHROPIC) {
+	if primaryConn != nil {
+		primaryHost = connectorHost(primaryConn)
+		if primaryConn.Is(connector.ANTHROPIC) {
 			primaryType = "anthropic"
 		} else {
 			primaryType = "openai"
@@ -247,10 +260,10 @@ func injectRoleProviders(cfg map[string]any, req *types.PrepareRequest) {
 		if sameProvider {
 			providerID = resolveExistingProviderID(providers, primaryType)
 			modelRef = providerID + "/" + modelName
-			mergeModelIntoProvider(providers, providerID, modelName, spec.Modalities)
+			mergeModelIntoProvider(providers, providerID, modelName)
 		} else {
 			providerID = role
-			providerCfg := buildRoleProviderConfig(c, spec.EnvKeyPrefix, spec.Modalities)
+			providerCfg := buildRoleProviderConfig(c, spec.EnvKeyPrefix)
 			providers[providerID] = providerCfg
 			modelRef = providerID + "/" + modelName
 		}
@@ -284,7 +297,7 @@ func resolveExistingProviderID(providers map[string]any, pType string) string {
 }
 
 // mergeModelIntoProvider adds a model entry to an existing provider block.
-func mergeModelIntoProvider(providers map[string]any, providerID, modelName string, modalities map[string][]string) {
+func mergeModelIntoProvider(providers map[string]any, providerID, modelName string) {
 	block, ok := providers[providerID].(map[string]any)
 	if !ok {
 		return
@@ -294,17 +307,13 @@ func mergeModelIntoProvider(providers map[string]any, providerID, modelName stri
 		models = map[string]any{}
 		block["models"] = models
 	}
-	modelCfg := map[string]any{"name": modelName}
-	if len(modalities) > 0 {
-		modelCfg["modalities"] = modalities
-	}
-	models[modelName] = modelCfg
+	models[modelName] = map[string]any{"name": modelName}
 }
 
 // buildRoleProviderConfig creates a provider configuration block for a
 // non-primary role connector. Uses the role's env key prefix for API key
 // and base URL references.
-func buildRoleProviderConfig(conn connector.Connector, envKeyPrefix string, modalities map[string][]string) map[string]any {
+func buildRoleProviderConfig(conn connector.Connector, envKeyPrefix string) map[string]any {
 	setting := conn.Setting()
 	modelName, _ := setting["model"].(string)
 	host, _ := setting["host"].(string)
@@ -314,9 +323,6 @@ func buildRoleProviderConfig(conn connector.Connector, envKeyPrefix string, moda
 	}
 
 	modelCfg := map[string]any{"name": modelName}
-	if len(modalities) > 0 {
-		modelCfg["modalities"] = modalities
-	}
 
 	if lc, ok := conn.(goullm.LLMConnector); ok {
 		if caps := lc.GetCapabilities(); caps != nil {

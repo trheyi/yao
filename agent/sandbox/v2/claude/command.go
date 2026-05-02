@@ -19,6 +19,7 @@ import (
 )
 
 const defaultA2OPort = 3099
+const defaultA2OMaxOutputTokens = 16384
 
 var yaoSessionNS = uuid.MustParse("f47ac10b-58cc-4372-a567-0e02b2c3d479")
 
@@ -178,7 +179,7 @@ func buildEnv(req *types.StreamRequest, p platform) map[string]string {
 			if len(roleConnectors) > 0 {
 				primaryHost := host
 				for role, rm := range claudeRoleEnvMap {
-					if role == "primary" {
+					if role == "default" {
 						continue
 					}
 					rc := resolveRoleConnector(role, roleConnectors, req.UserExplicit, getConn)
@@ -206,7 +207,7 @@ func buildEnv(req *types.StreamRequest, p platform) map[string]string {
 
 			if len(roleConnectors) > 0 {
 				for role, rm := range claudeRoleEnvMap {
-					if role == "primary" {
+					if role == "default" {
 						continue
 					}
 					rc := resolveRoleConnector(role, roleConnectors, req.UserExplicit, getConn)
@@ -227,6 +228,9 @@ func buildEnv(req *types.StreamRequest, p platform) map[string]string {
 					env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = fmt.Sprintf("%d", caps.MaxInputTokens)
 				}
 			}
+		}
+		if _, ok := env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"]; !ok && !req.Connector.Is(connector.ANTHROPIC) {
+			env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = fmt.Sprintf("%d", defaultA2OMaxOutputTokens)
 		}
 
 		if thinking, ok := setting["thinking"].(map[string]interface{}); ok {
@@ -424,17 +428,17 @@ func buildLastUserMessageJSONL(messages []agentContext.Message) string {
 
 // claudeRoleEnvMap maps abstract Yao model roles to Claude CLI environment
 // variables and virtual model name identifiers used as A2O route keys.
-// ModelName uniqueness is only required among roles that have independent
-// connectors (i.e. are added to the A2O routes map).
+// Only roles with matching Claude CLI env vars are listed here.
+// ANTHROPIC_DEFAULT_SONNET_MODEL and CLAUDE_CODE_SUBAGENT_MODEL are set to
+// the primary model in buildEnv (Claude CLI doesn't have vision/subagent as
+// independent role concepts).
 var claudeRoleEnvMap = map[string]struct {
 	EnvVar    string
 	ModelName string
 }{
-	"primary":  {EnvVar: "ANTHROPIC_MODEL", ModelName: "claude-sonnet-4-6"},
-	"heavy":    {EnvVar: "ANTHROPIC_DEFAULT_OPUS_MODEL", ModelName: "claude-opus-4-6"},
-	"light":    {EnvVar: "ANTHROPIC_DEFAULT_HAIKU_MODEL", ModelName: "claude-haiku-4-5"},
-	"subagent": {EnvVar: "CLAUDE_CODE_SUBAGENT_MODEL", ModelName: "claude-subagent-4-6"},
-	"vision":   {EnvVar: "ANTHROPIC_DEFAULT_SONNET_MODEL", ModelName: "claude-vision-4-5"},
+	"default": {EnvVar: "ANTHROPIC_MODEL", ModelName: "claude-sonnet-4-6"},
+	"heavy":   {EnvVar: "ANTHROPIC_DEFAULT_OPUS_MODEL", ModelName: "claude-opus-4-6"},
+	"light":   {EnvVar: "ANTHROPIC_DEFAULT_HAIKU_MODEL", ModelName: "claude-haiku-4-5"},
 }
 
 func connectorHost(c connector.Connector) string {

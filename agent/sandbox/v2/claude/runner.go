@@ -233,6 +233,10 @@ func buildSingleA2OConfig(conn connector.Connector) *a2oConnectorConfig {
 		cfg.Options = extra
 	}
 
+	if cfg.MaxOutputTokens == 0 {
+		cfg.MaxOutputTokens = defaultA2OMaxOutputTokens
+	}
+
 	if cfg.Backend == "" {
 		return nil
 	}
@@ -249,7 +253,7 @@ func resolveAllRoleConnectors(req *types.StreamRequest) map[string]connector.Con
 
 	result := make(map[string]connector.Connector)
 	for role, rm := range claudeRoleEnvMap {
-		if role == "primary" {
+		if role == "default" {
 			continue
 		}
 		rc := resolveRoleConnector(role, roleConns, req.UserExplicit, func(id string) connector.Connector {

@@ -601,10 +601,10 @@ func TestBuildEnv_OpenAI_SingleConnector(t *testing.T) {
 
 func TestBuildEnv_OpenAI_MultiConnector(t *testing.T) {
 	primary := newOpenAIConnector("kimi", "https://api.moonshot.cn", "kimi-k2.5", "sk-test")
-	vision := newOpenAIConnector("vision-conn", "https://api.vision.com", "vis-model", "sk-v")
+	heavyConn := newOpenAIConnector("heavy-conn", "https://api.heavy.com", "heavy-model", "sk-h")
 
 	cleanup := registerTestConnectors(t, map[string]connector.Connector{
-		"vision-conn": vision,
+		"heavy-conn": heavyConn,
 	})
 	defer cleanup()
 
@@ -612,7 +612,7 @@ func TestBuildEnv_OpenAI_MultiConnector(t *testing.T) {
 		Config: &types.SandboxConfig{
 			Runner: types.RunnerConfig{
 				Connectors: map[string]*types.RoleConnector{
-					"vision": {Connector: "vision-conn", Override: "force"},
+					"heavy": {Connector: "heavy-conn", Override: "force"},
 				},
 			},
 		},
@@ -622,8 +622,8 @@ func TestBuildEnv_OpenAI_MultiConnector(t *testing.T) {
 	p := testPlatform()
 
 	env := buildEnv(req, p)
-	assert.Equal(t, "claude-vision-4-5", env["ANTHROPIC_DEFAULT_SONNET_MODEL"],
-		"vision role should get its virtual model name for A2O routing")
+	assert.Equal(t, "claude-opus-4-6", env["ANTHROPIC_DEFAULT_OPUS_MODEL"],
+		"heavy role should get its virtual model name for A2O routing")
 	assert.Equal(t, "claude-sonnet-4-6", env["ANTHROPIC_MODEL"],
 		"primary should keep default virtual model")
 }
@@ -692,10 +692,10 @@ func TestBuildSingleA2OConfig_Nil(t *testing.T) {
 
 func TestInjectA2OConfigWithRoutes_BuildsCorrectJSON(t *testing.T) {
 	primary := newOpenAIConnector("kimi", "https://api.moonshot.cn", "kimi-k2.5", "sk-kimi")
-	vision := newOpenAIConnector("vision", "https://api.vision.com", "vis-model", "sk-v")
+	heavyConn := newOpenAIConnector("heavy", "https://api.heavy.com", "heavy-model", "sk-h")
 
 	roleConnectors := map[string]connector.Connector{
-		"claude-vision-4-5": vision,
+		"claude-opus-4-6": heavyConn,
 	}
 
 	primaryCfg := buildSingleA2OConfig(primary)
@@ -720,10 +720,10 @@ func TestInjectA2OConfigWithRoutes_BuildsCorrectJSON(t *testing.T) {
 	require.True(t, ok, "routes should be present in JSON")
 	assert.Len(t, routesMap, 1)
 
-	visionRoute, ok := routesMap["claude-vision-4-5"].(map[string]interface{})
+	heavyRoute, ok := routesMap["claude-opus-4-6"].(map[string]interface{})
 	require.True(t, ok)
-	assert.Equal(t, "vis-model", visionRoute["model"])
-	assert.Contains(t, visionRoute["backend"], "api.vision.com")
+	assert.Equal(t, "heavy-model", heavyRoute["model"])
+	assert.Contains(t, heavyRoute["backend"], "api.heavy.com")
 }
 
 func TestResolveAllRoleConnectors_Empty(t *testing.T) {
@@ -736,15 +736,15 @@ func TestResolveAllRoleConnectors_Empty(t *testing.T) {
 }
 
 func TestResolveAllRoleConnectors_WithRoles(t *testing.T) {
-	vision := newOpenAIConnector("vis", "https://vis.com", "vis-m", "sk")
-	cleanup := registerTestConnectors(t, map[string]connector.Connector{"vis": vision})
+	heavyConn := newOpenAIConnector("hvy", "https://heavy.com", "heavy-m", "sk")
+	cleanup := registerTestConnectors(t, map[string]connector.Connector{"hvy": heavyConn})
 	defer cleanup()
 
 	req := &types.StreamRequest{
 		Config: &types.SandboxConfig{
 			Runner: types.RunnerConfig{
 				Connectors: map[string]*types.RoleConnector{
-					"vision": {Connector: "vis", Override: "force"},
+					"heavy": {Connector: "hvy", Override: "force"},
 				},
 			},
 		},
@@ -752,15 +752,15 @@ func TestResolveAllRoleConnectors_WithRoles(t *testing.T) {
 	}
 	result := resolveAllRoleConnectors(req)
 	assert.Len(t, result, 1)
-	assert.Equal(t, vision, result["claude-vision-4-5"])
+	assert.Equal(t, heavyConn, result["claude-opus-4-6"])
 }
 
 func TestBuildEnv_Anthropic_MultiConnector_Incompatible(t *testing.T) {
 	primary := newAnthropicConnector("claude", "https://api.anthropic.com", "claude-sonnet-4-20250514", "sk-ant")
-	visionConn := newOpenAIConnector("vision-oai", "https://api.openai.com", "gpt-4o", "sk-oai")
+	heavyConn := newOpenAIConnector("heavy-oai", "https://api.openai.com", "gpt-4o", "sk-oai")
 
 	cleanup := registerTestConnectors(t, map[string]connector.Connector{
-		"vision-oai": visionConn,
+		"heavy-oai": heavyConn,
 	})
 	defer cleanup()
 
@@ -768,7 +768,7 @@ func TestBuildEnv_Anthropic_MultiConnector_Incompatible(t *testing.T) {
 		Config: &types.SandboxConfig{
 			Runner: types.RunnerConfig{
 				Connectors: map[string]*types.RoleConnector{
-					"vision": {Connector: "vision-oai", Override: "force"},
+					"heavy": {Connector: "heavy-oai", Override: "force"},
 				},
 			},
 		},
@@ -778,6 +778,6 @@ func TestBuildEnv_Anthropic_MultiConnector_Incompatible(t *testing.T) {
 	p := testPlatform()
 
 	env := buildEnv(req, p)
-	assert.Equal(t, "claude-sonnet-4-20250514", env["ANTHROPIC_DEFAULT_SONNET_MODEL"],
-		"incompatible connector: vision should keep primary model (different host, no anthropic protocol)")
+	assert.Equal(t, "claude-sonnet-4-20250514", env["ANTHROPIC_DEFAULT_OPUS_MODEL"],
+		"incompatible connector: heavy should keep primary model (different host, no anthropic protocol)")
 }

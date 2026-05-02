@@ -231,6 +231,7 @@ func initAssistant() error {
 			Light:       agentDSL.System.Light,
 			Vision:      agentDSL.System.Vision,
 			Audio:       agentDSL.System.Audio,
+			Heavy:       agentDSL.System.Heavy,
 			Keyword:     agentDSL.System.Keyword,
 			QueryDSL:    agentDSL.System.QueryDSL,
 			Title:       agentDSL.System.Title,
@@ -494,6 +495,7 @@ func buildSystemRoles(sys *types.System) map[string]string {
 	add("light", sys.Light)
 	add("vision", sys.Vision)
 	add("audio", sys.Audio)
+	add("heavy", sys.Heavy)
 	return roles
 }
 
@@ -506,6 +508,7 @@ func resolveEnvStrings(setting *types.DSL) {
 		setting.System.Light = helper.EnvString(setting.System.Light)
 		setting.System.Vision = helper.EnvString(setting.System.Vision)
 		setting.System.Audio = helper.EnvString(setting.System.Audio)
+		setting.System.Heavy = helper.EnvString(setting.System.Heavy)
 		setting.System.Keyword = helper.EnvString(setting.System.Keyword)
 		setting.System.QueryDSL = helper.EnvString(setting.System.QueryDSL)
 		setting.System.Title = helper.EnvString(setting.System.Title)
