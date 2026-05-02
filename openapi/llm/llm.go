@@ -72,6 +72,11 @@ func listProviders(c *gin.Context) {
 		}
 
 		capabilities := getCapabilitiesFromConn(conn)
+
+		if isNonChatModel(capabilities) && !hasFilter(filters, "embedding") && !hasFilter(filters, "image_generation") {
+			continue
+		}
+
 		if len(filters) > 0 && !matchesFilters(capabilities, filters) {
 			continue
 		}
@@ -109,6 +114,27 @@ func getCapabilitiesFromConn(conn connector.Connector) map[string]interface{} {
 	return agentllm.ToMap(caps)
 }
 
+// isNonChatModel returns true if capabilities indicate a non-chat model (embedding or image generation).
+func isNonChatModel(caps map[string]interface{}) bool {
+	if v, ok := caps["embedding"].(bool); ok && v {
+		return true
+	}
+	if v, ok := caps["image_generation"].(bool); ok && v {
+		return true
+	}
+	return false
+}
+
+// hasFilter checks whether a specific filter string is present in the filters list.
+func hasFilter(filters []string, name string) bool {
+	for _, f := range filters {
+		if f == name {
+			return true
+		}
+	}
+	return false
+}
+
 // matchesFilters checks if capabilities match all requested filters
 // Filters are matched case-insensitively and support the following capability keys:
 // - vision: true or string value like "openai", "claude"
@@ -119,6 +145,8 @@ func getCapabilitiesFromConn(conn connector.Connector) map[string]interface{} {
 // - streaming: bool
 // - json: bool
 // - multimodal: bool
+// - embedding: bool
+// - image_generation: bool
 // - temperature_adjustable: bool
 func matchesFilters(capabilities map[string]interface{}, filters []string) bool {
 	if capabilities == nil {

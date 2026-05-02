@@ -338,23 +338,9 @@ func capabilitiesFromConn(conn connector.Connector) *goullm.Capabilities {
 }
 
 // capsToMap converts Capabilities to map[string]interface{} for process handlers.
+// Delegates to the canonical Capabilities.ToMap() method in gou/llm.
 func capsToMap(caps *goullm.Capabilities) map[string]interface{} {
-	if caps == nil {
-		return nil
-	}
-	result := make(map[string]interface{})
-	if caps.Vision != nil {
-		result["vision"] = caps.Vision
-	}
-	result["audio"] = caps.Audio
-	result["stt"] = caps.STT
-	result["tool_calls"] = caps.ToolCalls
-	result["reasoning"] = caps.Reasoning
-	result["streaming"] = caps.Streaming
-	result["json"] = caps.JSON
-	result["multimodal"] = caps.Multimodal
-	result["temperature_adjustable"] = caps.TemperatureAdjustable
-	return result
+	return caps.ToMap()
 }
 
 func defaultCaps() *goullm.Capabilities {

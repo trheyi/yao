@@ -361,6 +361,12 @@ func capabilitiesFromCapabilities(c *goullm.Capabilities) []string {
 	if c.Multimodal {
 		out = append(out, "multimodal")
 	}
+	if c.Embedding {
+		out = append(out, "embedding")
+	}
+	if c.ImageGeneration {
+		out = append(out, "image_generation")
+	}
 	return out
 }
 

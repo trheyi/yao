@@ -83,6 +83,12 @@ func capabilitiesFromMap(m map[string]interface{}) *goullm.Capabilities {
 	if v, ok := m["temperature_adjustable"].(bool); ok {
 		caps.TemperatureAdjustable = v
 	}
+	if v, ok := m["embedding"].(bool); ok {
+		caps.Embedding = v
+	}
+	if v, ok := m["image_generation"].(bool); ok {
+		caps.ImageGeneration = v
+	}
 	return caps
 }
 
@@ -110,26 +116,8 @@ func GetCapabilitiesMap(connectorID string) map[string]interface{} {
 	return ToMap(caps)
 }
 
-// ToMap converts Capabilities to map[string]interface{}
+// ToMap converts Capabilities to map[string]interface{}.
+// Delegates to the canonical Capabilities.ToMap() method in gou/llm.
 func ToMap(caps *goullm.Capabilities) map[string]interface{} {
-	if caps == nil {
-		return nil
-	}
-
-	result := make(map[string]interface{})
-
-	if caps.Vision != nil {
-		result["vision"] = caps.Vision
-	}
-
-	result["audio"] = caps.Audio
-	result["stt"] = caps.STT
-	result["tool_calls"] = caps.ToolCalls
-	result["reasoning"] = caps.Reasoning
-	result["streaming"] = caps.Streaming
-	result["json"] = caps.JSON
-	result["multimodal"] = caps.Multimodal
-	result["temperature_adjustable"] = caps.TemperatureAdjustable
-
-	return result
+	return caps.ToMap()
 }

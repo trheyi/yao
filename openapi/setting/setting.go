@@ -36,6 +36,7 @@ func Attach(group *gin.RouterGroup, oauth oauthTypes.OAuth) {
 	cloud.GET("", handleCloudGet)
 	cloud.PUT("", handleCloudUpdate)
 	cloud.POST("/test", handleCloudTest)
+	cloud.POST("/refresh", handleCloudRefresh)
 
 	llm := group.Group("/llm")
 	llm.GET("", handleLLMGet)

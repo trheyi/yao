@@ -204,6 +204,7 @@ func handleCloudUpdate(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	invalidateCloudModelCache()
 
 	def := cloudDefaultRegion()
 	result := CloudPageData{
@@ -314,6 +315,43 @@ func handleCloudTest(c *gin.Context) {
 		Success:   true,
 		Message:   "Connection successful",
 		LatencyMs: latency,
+	})
+}
+
+// handleCloudRefresh invalidates the cloud model cache and re-fetches the model list.
+// POST /setting/cloud/refresh
+func handleCloudRefresh(c *gin.Context) {
+	if !guardOwner(c) {
+		return
+	}
+	info := authorized.GetInfo(c)
+	scope := cloudScope(info)
+
+	saved, _ := setting.Global.Get(scope, cloudNS)
+	if saved == nil {
+		respondError(c, http.StatusBadRequest, "cloud service not configured")
+		return
+	}
+
+	status, _ := saved["status"].(string)
+	if status != "connected" {
+		respondError(c, http.StatusBadRequest, "cloud service not connected")
+		return
+	}
+
+	encKey, _ := saved["api_key"].(string)
+	if encKey == "" {
+		respondError(c, http.StatusBadRequest, "no API key configured")
+		return
+	}
+
+	apiURL := resolveCloudAPIURL(saved)
+	invalidateCloudModelCache()
+	models := fetchCloudModels(apiURL, cloudDecrypt(encKey))
+
+	response.RespondWithSuccess(c, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"count":   len(models),
 	})
 }
 

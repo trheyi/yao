@@ -123,10 +123,8 @@ func llmValidateKey(providerType, apiURL, apiKey string) error {
 
 var (
 	cloudModelCache    []map[string]interface{}
-	cloudModelCacheAt  time.Time
 	cloudModelCacheURL string
 	cloudModelCacheMu  sync.Mutex
-	cloudModelCacheTTL = 5 * time.Minute
 )
 
 func buildCloudPreset(info *oauthTypes.AuthorizedInfo) {
@@ -177,7 +175,7 @@ func resolveCloudAPIURL(saved map[string]interface{}) string {
 
 func fetchCloudModels(apiURL, apiKey string) []map[string]interface{} {
 	cloudModelCacheMu.Lock()
-	if cloudModelCache != nil && cloudModelCacheURL == apiURL && time.Since(cloudModelCacheAt) < cloudModelCacheTTL {
+	if cloudModelCache != nil && cloudModelCacheURL == apiURL {
 		cached := cloudModelCache
 		cloudModelCacheMu.Unlock()
 		return cached
@@ -230,11 +228,17 @@ func fetchCloudModels(apiURL, apiKey string) []map[string]interface{} {
 
 	cloudModelCacheMu.Lock()
 	cloudModelCache = models
-	cloudModelCacheAt = time.Now()
 	cloudModelCacheURL = apiURL
 	cloudModelCacheMu.Unlock()
 
 	return models
+}
+
+func invalidateCloudModelCache() {
+	cloudModelCacheMu.Lock()
+	cloudModelCache = nil
+	cloudModelCacheURL = ""
+	cloudModelCacheMu.Unlock()
 }
 
 func mapCloudModel(item map[string]interface{}) map[string]interface{} {
