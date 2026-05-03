@@ -615,8 +615,9 @@ func TestOwnerPrefixedIDs(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.key, func(t *testing.T) {
+			scopedKey := llmprovider.ScopedKey(&tc.owner, tc.key)
 			p := llmprovider.Provider{
-				Key:     tc.key,
+				Key:     scopedKey,
 				Name:    tc.key,
 				Type:    "openai",
 				APIURL:  "https://api.openai.com",
