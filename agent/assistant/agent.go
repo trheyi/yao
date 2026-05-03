@@ -14,9 +14,7 @@ import (
 	"github.com/yaoapp/yao/agent/llm"
 	"github.com/yaoapp/yao/agent/output/message"
 	agentsandbox "github.com/yaoapp/yao/agent/sandbox"
-	sandboxTypes "github.com/yaoapp/yao/agent/sandbox/v2/types"
 	"github.com/yaoapp/yao/llmprovider"
-	infraV2 "github.com/yaoapp/yao/sandbox/v2"
 )
 
 // Stream stream the agent
@@ -168,30 +166,25 @@ func (ast *Assistant) Stream(ctx *context.Context, inputMessages []context.Messa
 	var sandboxLoadingMsgID string
 
 	// V2 sandbox state
-	var v2Runner sandboxTypes.Runner
-	var v2Computer infraV2.Computer
-	var v2LoadingMsgID string
-
-	var v2Cfg *sandboxTypes.SandboxConfig
+	var v2Init *sandboxV2InitResult
 	if ast.HasSandboxV2() {
 		ctx.Logger.Phase("Sandbox V2")
 		var err error
-		var v2Cleanup func()
-		v2Runner, v2Computer, v2Cfg, v2Cleanup, v2LoadingMsgID, err = ast.initSandboxV2(ctx, opts)
+		v2Init, err = ast.initSandboxV2(ctx, opts)
 		if err != nil {
 			ast.traceAgentFail(agentNode, err)
 			ast.sendStreamEndOnError(ctx, streamHandler, streamStartTime, err)
 			return nil, err
 		}
-		sandboxCleanup = v2Cleanup
+		sandboxCleanup = v2Init.Cleanup
 		ctx.Logger.PhaseComplete("Sandbox V2")
-		if v2Computer != nil {
-			ci := v2Computer.ComputerInfo()
+		if v2Init.Computer != nil {
+			ci := v2Init.Computer.ComputerInfo()
 			ctx.Logger.Trace("Node: %s (%s)", ci.NodeID, ci.Kind)
 			if ci.BoxID != "" {
 				ctx.Logger.Trace("Computer: %s", ci.BoxID)
 			}
-			ctx.Logger.Trace("Workspace: %s", v2Cfg.WorkspaceID)
+			ctx.Logger.Trace("Workspace: %s", v2Init.Config.WorkspaceID)
 			if conn, _, err := ast.GetConnector(ctx, opts); err == nil && conn != nil {
 				ctx.Logger.Trace("Connector: %s", conn.ID())
 			}
@@ -331,22 +324,23 @@ func (ast *Assistant) Stream(ctx *context.Context, inputMessages []context.Messa
 
 		// Execute the LLM streaming call
 		// Choose between sandbox execution or direct LLM execution
-		if ast.HasSandboxV2() && v2Runner != nil && v2Computer != nil && v2Runner.Name() != "yao" {
+		if ast.HasSandboxV2() && v2Init != nil && v2Init.Runner != nil && v2Init.Computer != nil && v2Init.Runner.Name() != "yao" {
 			// V2 Sandbox execution path (non-yao runners replace LLM.Stream)
 			completionResponse, err = ast.executeSandboxV2Stream(ctx, &sandboxV2StreamParams{
 				Messages:     completionMessages,
 				AgentNode:    agentNode,
 				Handler:      streamHandler,
-				Runner:       v2Runner,
-				Computer:     v2Computer,
-				Config:       v2Cfg,
-				LoadingMsgID: v2LoadingMsgID,
+				Runner:       v2Init.Runner,
+				Computer:     v2Init.Computer,
+				Config:       v2Init.Config,
+				LoadingMsgID: v2Init.LoadingMsgID,
 				Options:      opts,
+				Roles:        v2Init.Roles,
 			})
-		} else if ast.HasSandboxV2() && v2Runner != nil && v2Runner.Name() == "yao" {
+		} else if ast.HasSandboxV2() && v2Init != nil && v2Init.Runner != nil && v2Init.Runner.Name() == "yao" {
 			// V2 yao runner: Prepare is done, close loading, fall through to LLM
-			if v2LoadingMsgID != "" {
-				closeLoadingV2(ctx, v2LoadingMsgID, "")
+			if v2Init.LoadingMsgID != "" {
+				closeLoadingV2(ctx, v2Init.LoadingMsgID, "")
 			}
 			completionResponse, err = ast.executeLLMStream(ctx, completionMessages, completionOptions, agentNode, streamHandler, opts)
 		} else if ast.HasSandbox() {

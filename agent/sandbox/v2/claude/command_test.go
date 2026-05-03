@@ -308,7 +308,6 @@ func TestBuildSandboxEnvPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "darwin")
 	assert.Contains(t, prompt, "bash")
 	assert.Contains(t, prompt, "Sandbox Environment")
-	assert.Contains(t, prompt, ".attachments")
 }
 
 func TestBuildSandboxEnvPrompt_WindowsPlatform(t *testing.T) {
@@ -525,64 +524,6 @@ func TestSupportsProtocol(t *testing.T) {
 	assert.True(t, supportsProtocol(oai, "openai"))
 }
 
-func TestResolveRoleConnector_Undeclared(t *testing.T) {
-	roles := map[string]*types.RoleConnector{}
-	result := resolveRoleConnector("heavy", roles, false, func(id string) connector.Connector { return nil })
-	assert.Nil(t, result)
-}
-
-func TestResolveRoleConnector_Force(t *testing.T) {
-	heavyConn := newOpenAIConnector("thinking", "https://api.thinking.com", "think-model", "k")
-	roles := map[string]*types.RoleConnector{
-		"heavy": {Connector: "thinking", Override: "force"},
-	}
-	result := resolveRoleConnector("heavy", roles, true, func(id string) connector.Connector {
-		if id == "thinking" {
-			return heavyConn
-		}
-		return nil
-	})
-	assert.Equal(t, heavyConn, result)
-}
-
-func TestResolveRoleConnector_UserExplicit(t *testing.T) {
-	roles := map[string]*types.RoleConnector{
-		"heavy": {Connector: "thinking", Override: "user"},
-	}
-	result := resolveRoleConnector("heavy", roles, true, func(id string) connector.Connector {
-		return newOpenAIConnector("thinking", "h", "m", "k")
-	})
-	assert.Nil(t, result, "override=user + userExplicit=true => use user's connector")
-}
-
-func TestResolveRoleConnector_UserNotExplicit(t *testing.T) {
-	heavyConn := newOpenAIConnector("thinking", "h", "m", "k")
-	roles := map[string]*types.RoleConnector{
-		"heavy": {Connector: "thinking", Override: "user"},
-	}
-	result := resolveRoleConnector("heavy", roles, false, func(id string) connector.Connector {
-		if id == "thinking" {
-			return heavyConn
-		}
-		return nil
-	})
-	assert.Equal(t, heavyConn, result, "override=user + userExplicit=false => use sandbox connector")
-}
-
-// --- buildEnv with multi-connector ---
-
-func registerTestConnectors(t *testing.T, connectors map[string]connector.Connector) func() {
-	t.Helper()
-	for id, c := range connectors {
-		connector.Connectors[id] = c
-	}
-	return func() {
-		for id := range connectors {
-			delete(connector.Connectors, id)
-		}
-	}
-}
-
 func TestBuildEnv_OpenAI_SingleConnector(t *testing.T) {
 	oai := newOpenAIConnector("kimi", "https://api.moonshot.cn", "kimi-k2.5", "sk-test")
 	req := &types.StreamRequest{
@@ -595,37 +536,32 @@ func TestBuildEnv_OpenAI_SingleConnector(t *testing.T) {
 	env := buildEnv(req, p)
 	assert.Contains(t, env["ANTHROPIC_BASE_URL"], "127.0.0.1")
 	assert.Contains(t, env["ANTHROPIC_BASE_URL"], "kimi")
-	assert.Equal(t, "claude-sonnet-4-6", env["ANTHROPIC_MODEL"])
-	assert.Equal(t, "claude-sonnet-4-6", env["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+	assert.Equal(t, "kimi-k2.5", env["ANTHROPIC_MODEL"])
+	assert.Equal(t, "kimi-k2.5", env["ANTHROPIC_DEFAULT_OPUS_MODEL"])
 }
 
 func TestBuildEnv_OpenAI_MultiConnector(t *testing.T) {
 	primary := newOpenAIConnector("kimi", "https://api.moonshot.cn", "kimi-k2.5", "sk-test")
 	heavyConn := newOpenAIConnector("heavy-conn", "https://api.heavy.com", "heavy-model", "sk-h")
 
-	cleanup := registerTestConnectors(t, map[string]connector.Connector{
-		"heavy-conn": heavyConn,
-	})
-	defer cleanup()
-
 	req := &types.StreamRequest{
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"heavy": {Connector: "heavy-conn", Override: "force"},
-				},
-			},
-		},
+		Config:    &types.SandboxConfig{},
 		Connector: primary,
+		Roles: map[string]connector.Connector{
+			"default": primary,
+			"heavy":   heavyConn,
+		},
 	}
 	req.Computer = newFakeComputer("/workspace")
 	p := testPlatform()
 
 	env := buildEnv(req, p)
-	assert.Equal(t, "claude-opus-4-6", env["ANTHROPIC_DEFAULT_OPUS_MODEL"],
-		"heavy role should get its virtual model name for A2O routing")
-	assert.Equal(t, "claude-sonnet-4-6", env["ANTHROPIC_MODEL"],
-		"primary should keep default virtual model")
+	assert.Equal(t, "heavy-model", env["ANTHROPIC_DEFAULT_OPUS_MODEL"],
+		"heavy role should use actual model name from connector")
+	assert.Equal(t, "kimi-k2.5", env["ANTHROPIC_MODEL"],
+		"primary should use actual model name from connector")
+	assert.Equal(t, "kimi-k2.5", env["ANTHROPIC_CUSTOM_MODEL_OPTION"],
+		"non-standard model should set custom model option")
 }
 
 func TestBuildEnv_Anthropic_SingleConnector(t *testing.T) {
@@ -647,20 +583,13 @@ func TestBuildEnv_Anthropic_MultiConnector_Compatible(t *testing.T) {
 	primary := newAnthropicConnector("claude", "https://api.yao.run", "claude-sonnet-4-20250514", "sk-ant")
 	lightConn := newDualProtoConnector("light-conn", "https://api.yao.run", "claude-haiku-3-5-20241022", "sk-light")
 
-	cleanup := registerTestConnectors(t, map[string]connector.Connector{
-		"light-conn": lightConn,
-	})
-	defer cleanup()
-
 	req := &types.StreamRequest{
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"light": {Connector: "light-conn", Override: "force"},
-				},
-			},
-		},
+		Config:    &types.SandboxConfig{},
 		Connector: primary,
+		Roles: map[string]connector.Connector{
+			"default": primary,
+			"light":   lightConn,
+		},
 	}
 	req.Computer = newFakeComputer("/workspace")
 	p := testPlatform()
@@ -695,7 +624,7 @@ func TestInjectA2OConfigWithRoutes_BuildsCorrectJSON(t *testing.T) {
 	heavyConn := newOpenAIConnector("heavy", "https://api.heavy.com", "heavy-model", "sk-h")
 
 	roleConnectors := map[string]connector.Connector{
-		"claude-opus-4-6": heavyConn,
+		"heavy-model": heavyConn,
 	}
 
 	primaryCfg := buildSingleA2OConfig(primary)
@@ -720,7 +649,7 @@ func TestInjectA2OConfigWithRoutes_BuildsCorrectJSON(t *testing.T) {
 	require.True(t, ok, "routes should be present in JSON")
 	assert.Len(t, routesMap, 1)
 
-	heavyRoute, ok := routesMap["claude-opus-4-6"].(map[string]interface{})
+	heavyRoute, ok := routesMap["heavy-model"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, "heavy-model", heavyRoute["model"])
 	assert.Contains(t, heavyRoute["backend"], "api.heavy.com")
@@ -736,43 +665,34 @@ func TestResolveAllRoleConnectors_Empty(t *testing.T) {
 }
 
 func TestResolveAllRoleConnectors_WithRoles(t *testing.T) {
+	primaryConn := newOpenAIConnector("primary", "https://primary.com", "primary-m", "k")
 	heavyConn := newOpenAIConnector("hvy", "https://heavy.com", "heavy-m", "sk")
-	cleanup := registerTestConnectors(t, map[string]connector.Connector{"hvy": heavyConn})
-	defer cleanup()
 
 	req := &types.StreamRequest{
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"heavy": {Connector: "hvy", Override: "force"},
-				},
-			},
+		Config:    &types.SandboxConfig{},
+		Connector: primaryConn,
+		Roles: map[string]connector.Connector{
+			"default": primaryConn,
+			"heavy":   heavyConn,
 		},
-		Connector: newOpenAIConnector("primary", "h", "m", "k"),
 	}
 	result := resolveAllRoleConnectors(req)
-	assert.Len(t, result, 1)
-	assert.Equal(t, heavyConn, result["claude-opus-4-6"])
+	assert.Len(t, result, 2)
+	assert.Equal(t, primaryConn, result["primary-m"])
+	assert.Equal(t, heavyConn, result["heavy-m"])
 }
 
 func TestBuildEnv_Anthropic_MultiConnector_Incompatible(t *testing.T) {
 	primary := newAnthropicConnector("claude", "https://api.anthropic.com", "claude-sonnet-4-20250514", "sk-ant")
 	heavyConn := newOpenAIConnector("heavy-oai", "https://api.openai.com", "gpt-4o", "sk-oai")
 
-	cleanup := registerTestConnectors(t, map[string]connector.Connector{
-		"heavy-oai": heavyConn,
-	})
-	defer cleanup()
-
 	req := &types.StreamRequest{
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"heavy": {Connector: "heavy-oai", Override: "force"},
-				},
-			},
-		},
+		Config:    &types.SandboxConfig{},
 		Connector: primary,
+		Roles: map[string]connector.Connector{
+			"default": primary,
+			"heavy":   heavyConn,
+		},
 	}
 	req.Computer = newFakeComputer("/workspace")
 	p := testPlatform()

@@ -12,8 +12,10 @@ import (
 	"github.com/yaoapp/kun/log"
 	agentContext "github.com/yaoapp/yao/agent/context"
 	"github.com/yaoapp/yao/agent/output/message"
+	"github.com/yaoapp/yao/agent/sandbox/v2/shared"
 	"github.com/yaoapp/yao/agent/sandbox/v2/types"
 	infra "github.com/yaoapp/yao/sandbox/v2"
+	"github.com/yaoapp/yao/tools"
 )
 
 // Runner implements the sandbox Runner interface for Claude CLI (mode=cli).
@@ -48,6 +50,18 @@ func (r *Runner) Prepare(ctx context.Context, req *types.PrepareRequest) error {
 	}
 
 	steps := append([]types.PrepareStep{}, req.Config.Prepare...)
+
+	if ws := req.Computer.Workplace(); ws != nil {
+		if err := shared.InjectSystemSkills(ws, tools.SkillsFS, ".claude/skills"); err != nil {
+			r.logger.Warn("inject system skills: %v", err)
+		}
+		if err := shared.AppendSystemPrompt(ws, "CLAUDE.md", tools.SystemPrompt); err != nil {
+			r.logger.Warn("append CLAUDE.md: %v", err)
+		}
+		if err := shared.AppendSystemPrompt(ws, "AGENTS.md", tools.SystemPrompt); err != nil {
+			r.logger.Warn("append AGENTS.md: %v", err)
+		}
+	}
 
 	if req.SkillsDir != "" {
 		ws := req.Computer.Workplace()
@@ -243,27 +257,25 @@ func buildSingleA2OConfig(conn connector.Connector) *a2oConnectorConfig {
 	return cfg
 }
 
-// resolveAllRoleConnectors resolves all declared role connectors and returns
-// a map of virtual model name -> connector for roles that have independent connectors.
+// resolveAllRoleConnectors maps pre-resolved role connectors from req.Roles
+// to actual model names used as A2O proxy route keys.
 func resolveAllRoleConnectors(req *types.StreamRequest) map[string]connector.Connector {
-	roleConns := getRoleConnectors(req)
-	if len(roleConns) == 0 {
+	if len(req.Roles) == 0 {
 		return nil
 	}
 
 	result := make(map[string]connector.Connector)
-	for role, rm := range claudeRoleEnvMap {
-		if role == "default" {
-			continue
+	for _, rc := range req.Roles {
+		var model string
+		if lc, ok := rc.(goullm.LLMConnector); ok {
+			model = lc.GetModel()
 		}
-		rc := resolveRoleConnector(role, roleConns, req.UserExplicit, func(id string) connector.Connector {
-			c, _ := connector.Connectors[id]
-			return c
-		})
-		if rc == nil {
-			continue
+		if model == "" {
+			model, _ = rc.Setting()["model"].(string)
 		}
-		result[rm.ModelName] = rc
+		if model != "" {
+			result[model] = rc
+		}
 	}
 	return result
 }

@@ -27,23 +27,13 @@ var openCodeRoleMap = map[string]roleSpec{
 	},
 }
 
-// resolvePrimaryConnector returns the heavy connector if configured,
-// otherwise falls back to the caller-supplied primary (typically the
-// assistant's default connector). This aligns with OpenCode's semantics
-// where the top-level "model" handles complex coding tasks.
-func resolvePrimaryConnector(primary connector.Connector, cfg *types.SandboxConfig) connector.Connector {
-	if cfg == nil || cfg.Runner.Connectors == nil {
-		return primary
+// resolvePrimaryConnector returns the heavy role connector if present in the
+// pre-resolved roles map, otherwise falls back to the caller-supplied primary.
+func resolvePrimaryConnector(primary connector.Connector, roles map[string]connector.Connector) connector.Connector {
+	if c, ok := roles["heavy"]; ok && c != nil {
+		return c
 	}
-	rc, ok := cfg.Runner.Connectors["heavy"]
-	if !ok || rc == nil || rc.Connector == "" {
-		return primary
-	}
-	c, exists := connector.Connectors[rc.Connector]
-	if !exists || c == nil {
-		return primary
-	}
-	return c
+	return primary
 }
 
 // buildOpenCodeConfig generates the opencode.json project configuration.
@@ -58,7 +48,7 @@ func buildOpenCodeConfig(req *types.PrepareRequest, mcpServers []types.MCPServer
 		"permission": map[string]any{"*": "allow"},
 	}
 
-	primaryConn := resolvePrimaryConnector(req.Connector, req.Config)
+	primaryConn := resolvePrimaryConnector(req.Connector, req.Roles)
 	if primaryConn != nil {
 		providerID, providerCfg, modelStr := buildProviderConfig(primaryConn)
 		cfg["provider"] = map[string]any{providerID: providerCfg}
@@ -195,7 +185,7 @@ func normalizeBaseURL(host string) string {
 // also sets the top-level "small_model" field. primaryConn is the resolved
 // primary connector (may be heavy or default) used for sameProvider checks.
 func injectRoleProviders(cfg map[string]any, req *types.PrepareRequest, primaryConn connector.Connector) {
-	if req.Config == nil || req.Config.Runner.Connectors == nil {
+	if len(req.Roles) == 0 {
 		return
 	}
 
@@ -223,13 +213,8 @@ func injectRoleProviders(cfg map[string]any, req *types.PrepareRequest, primaryC
 	}
 
 	for role, spec := range openCodeRoleMap {
-		rc, ok := req.Config.Runner.Connectors[role]
-		if !ok || rc == nil || rc.Connector == "" {
-			continue
-		}
-
-		c, exists := connector.Connectors[rc.Connector]
-		if !exists || c == nil {
+		c, ok := req.Roles[role]
+		if !ok || c == nil {
 			continue
 		}
 

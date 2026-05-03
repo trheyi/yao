@@ -12,6 +12,7 @@ import (
 	"github.com/yaoapp/gou/connector"
 	goullm "github.com/yaoapp/gou/llm"
 	"github.com/yaoapp/gou/store"
+	"github.com/yaoapp/kun/log"
 	"github.com/yaoapp/kun/str"
 	agentContext "github.com/yaoapp/yao/agent/context"
 	"github.com/yaoapp/yao/agent/sandbox/v2/types"
@@ -159,64 +160,14 @@ func buildEnv(req *types.StreamRequest, p platform) map[string]string {
 			model, _ = setting["model"].(string)
 		}
 
-		roleConnectors := getRoleConnectors(req)
-		getConn := func(id string) connector.Connector {
-			c, _ := connector.Connectors[id]
-			return c
-		}
+		isAnthropic := req.Connector.Is(connector.ANTHROPIC)
 
-		if req.Connector.Is(connector.ANTHROPIC) {
-			env["ANTHROPIC_BASE_URL"] = host
-			env["ANTHROPIC_API_KEY"] = key
-			if model != "" {
-				env["ANTHROPIC_MODEL"] = model
-				env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
-				env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
-				env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
-				env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
-			}
-
-			if len(roleConnectors) > 0 {
-				primaryHost := host
-				for role, rm := range claudeRoleEnvMap {
-					if role == "default" {
-						continue
-					}
-					rc := resolveRoleConnector(role, roleConnectors, req.UserExplicit, getConn)
-					if rc == nil {
-						continue
-					}
-					rcHost := connectorHost(rc)
-					if rcHost == primaryHost && supportsProtocol(rc, "anthropic") {
-						rcModel, _ := rc.Setting()["model"].(string)
-						if rcModel != "" {
-							env[rm.EnvVar] = rcModel
-						}
-					}
-				}
-			}
+		if isAnthropic {
+			setAnthropicModelEnv(env, host, key, model, req.Connector)
+			applyAnthropicRoleOverrides(env, host, req.Roles)
 		} else {
-			connectorID := req.Connector.ID()
-			env["ANTHROPIC_BASE_URL"] = fmt.Sprintf("http://127.0.0.1:%d/c/%s", defaultA2OPort, connectorID)
-			env["ANTHROPIC_API_KEY"] = "dummy"
-			env["ANTHROPIC_MODEL"] = "claude-sonnet-4-6"
-			env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = "claude-sonnet-4-6"
-			env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = "claude-sonnet-4-6"
-			env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = "claude-sonnet-4-6"
-			env["CLAUDE_CODE_SUBAGENT_MODEL"] = "claude-sonnet-4-6"
-
-			if len(roleConnectors) > 0 {
-				for role, rm := range claudeRoleEnvMap {
-					if role == "default" {
-						continue
-					}
-					rc := resolveRoleConnector(role, roleConnectors, req.UserExplicit, getConn)
-					if rc == nil {
-						continue
-					}
-					env[rm.EnvVar] = rm.ModelName
-				}
-			}
+			setA2OModelEnv(env, req.Connector.ID(), model, req.Connector)
+			applyA2ORoleOverrides(env, req.Roles)
 		}
 
 		if lc, ok := req.Connector.(goullm.LLMConnector); ok {
@@ -260,6 +211,25 @@ func buildEnv(req *types.StreamRequest, p platform) map[string]string {
 			env["YAO_REFRESH_TOKEN"] = req.Token.RefreshToken
 		}
 	}
+
+	logger := req.Logger
+	if logger == nil {
+		logger = agentContext.NoopLogger()
+	}
+	connectorID := ""
+	if req.Connector != nil {
+		connectorID = req.Connector.ID()
+	}
+	logger.Debug("claude-env: connector=%s isAnthropic=%v", connectorID, req.Connector != nil && req.Connector.Is(connector.ANTHROPIC))
+	logger.Debug("claude-env: ANTHROPIC_MODEL=%s", env["ANTHROPIC_MODEL"])
+	logger.Debug("claude-env: OPUS_MODEL=%s SONNET_MODEL=%s HAIKU_MODEL=%s",
+		env["ANTHROPIC_DEFAULT_OPUS_MODEL"],
+		env["ANTHROPIC_DEFAULT_SONNET_MODEL"],
+		env["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
+	logger.Debug("claude-env: CUSTOM_MODEL_OPTION=%s CAPABILITIES=%s",
+		env["ANTHROPIC_CUSTOM_MODEL_OPTION"],
+		env["ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES"])
+	logger.Debug("claude-env: MAX_THINKING_TOKENS=%s", env["MAX_THINKING_TOKENS"])
 
 	return env
 }
@@ -331,26 +301,13 @@ func buildSandboxEnvPrompt(p platform, workDir string) string {
 
 	shellNote := p.EnvPromptNote()
 
-	envVarSyntax := "$VAR_NAME"
-	if osName == "windows" {
-		envVarSyntax = "$env:VAR_NAME"
-	}
-
 	return fmt.Sprintf(`## Sandbox Environment
 
 - **Operating System**: %[2]s
 - **Shell**: %[3]s
 - **Working Directory**: %[1]s
 - **File Access**: You have full read/write access to %[1]s
-- **Environment variable syntax**: `+"`%[5]s`"+` (e.g. `+"`$CTX_SKILLS_DIR`"+` on POSIX, `+"`$env:CTX_SKILLS_DIR`"+` on Windows)%[4]s
-
-## User Attachments
-
-User-uploaded files (images, documents, code files, etc.) are placed in %[1]s/.attachments/{chatID}/
-Each chat session has its own subdirectory to avoid conflicts.
-When the user references an attached file, read it from this directory using the Read or Bash tool.
-For image files, you can view them directly as Claude supports vision on local files.
-`, workDir, osName, shell, shellNote, envVarSyntax)
+%[4]s`, workDir, osName, shell, shellNote)
 }
 
 func hasExistingSession(ctx context.Context, computer infra.Computer, p platform, assistantID string) bool {
@@ -427,18 +384,12 @@ func buildLastUserMessageJSONL(messages []agentContext.Message) string {
 }
 
 // claudeRoleEnvMap maps abstract Yao model roles to Claude CLI environment
-// variables and virtual model name identifiers used as A2O route keys.
-// Only roles with matching Claude CLI env vars are listed here.
-// ANTHROPIC_DEFAULT_SONNET_MODEL and CLAUDE_CODE_SUBAGENT_MODEL are set to
-// the primary model in buildEnv (Claude CLI doesn't have vision/subagent as
-// independent role concepts).
-var claudeRoleEnvMap = map[string]struct {
-	EnvVar    string
-	ModelName string
-}{
-	"default": {EnvVar: "ANTHROPIC_MODEL", ModelName: "claude-sonnet-4-6"},
-	"heavy":   {EnvVar: "ANTHROPIC_DEFAULT_OPUS_MODEL", ModelName: "claude-opus-4-6"},
-	"light":   {EnvVar: "ANTHROPIC_DEFAULT_HAIKU_MODEL", ModelName: "claude-haiku-4-5"},
+// variables. Only roles with matching Claude CLI env vars are listed here.
+// ANTHROPIC_DEFAULT_SONNET_MODEL is set to the primary model in buildEnv.
+var claudeRoleEnvMap = map[string]struct{ EnvVar string }{
+	"default": {EnvVar: "ANTHROPIC_MODEL"},
+	"heavy":   {EnvVar: "ANTHROPIC_DEFAULT_OPUS_MODEL"},
+	"light":   {EnvVar: "ANTHROPIC_DEFAULT_HAIKU_MODEL"},
 }
 
 func connectorHost(c connector.Connector) string {
@@ -477,33 +428,149 @@ func supportsProtocol(c connector.Connector, proto string) bool {
 	return false
 }
 
-// resolveRoleConnector determines which connector to use for a given role.
-// Returns nil when the role should use the primary connector (caller decides).
-func resolveRoleConnector(
-	role string,
-	roleConnectors map[string]*types.RoleConnector,
-	userExplicit bool,
-	getConnector func(id string) connector.Connector,
-) connector.Connector {
-	rc, ok := roleConnectors[role]
-	if !ok || rc == nil {
-		return nil
-	}
-	if rc.Override == "user" && userExplicit {
-		return nil
-	}
-	return getConnector(rc.Connector)
-}
-
-func getRoleConnectors(req *types.StreamRequest) map[string]*types.RoleConnector {
-	if req.Config == nil {
-		return nil
-	}
-	return req.Config.Runner.Connectors
-}
-
 var claudeArgWhitelist = map[string]string{
 	"max_turns":        "--max-turns",
 	"disallowed_tools": "--disallowed-tools",
 	"allowed_tools":    "--allowedTools",
+}
+
+func isStandardAnthropicModel(model string) bool {
+	return strings.HasPrefix(model, "claude-") || strings.HasPrefix(model, "anthropic.")
+}
+
+func buildClaudeCodeCapabilities(conn connector.Connector) string {
+	if conn == nil {
+		return ""
+	}
+	setting := conn.Setting()
+	if setting == nil {
+		return ""
+	}
+	var caps []string
+	if thinking, ok := setting["thinking"].(map[string]interface{}); ok {
+		if thinkType, _ := thinking["type"].(string); thinkType == "enabled" {
+			caps = append(caps, "thinking")
+		}
+	}
+	return strings.Join(caps, ",")
+}
+
+func setAnthropicModelEnv(env map[string]string, host, key, model string, conn connector.Connector) {
+	env["ANTHROPIC_BASE_URL"] = host
+	env["ANTHROPIC_API_KEY"] = key
+	if model == "" {
+		return
+	}
+	env["ANTHROPIC_MODEL"] = model
+	env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+	env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
+	env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
+
+	if isStandardAnthropicModel(model) {
+		return
+	}
+	caps := buildClaudeCodeCapabilities(conn)
+	env["ANTHROPIC_CUSTOM_MODEL_OPTION"] = model
+	env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"] = model
+	env["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"] = model
+	env["ANTHROPIC_DEFAULT_SONNET_MODEL_NAME"] = model
+	env["ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME"] = model
+	if caps != "" {
+		env["ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES"] = caps
+		env["ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES"] = caps
+		env["ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES"] = caps
+		env["ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES"] = caps
+	}
+}
+
+func applyAnthropicRoleOverrides(
+	env map[string]string,
+	primaryHost string,
+	roles map[string]connector.Connector,
+) {
+	for role, rm := range claudeRoleEnvMap {
+		if role == "default" {
+			continue
+		}
+		rc, ok := roles[role]
+		if !ok || rc == nil {
+			continue
+		}
+		roleHost := connectorHost(rc)
+		if roleHost != primaryHost {
+			log.Warn("[claude] role %s: host mismatch (%s != %s), falling back to primary", role, roleHost, primaryHost)
+			continue
+		}
+		if !supportsProtocol(rc, "anthropic") {
+			log.Warn("[claude] role %s: not anthropic protocol, falling back to primary", role)
+			continue
+		}
+		rcModel, _ := rc.Setting()["model"].(string)
+		if rcModel == "" {
+			continue
+		}
+		env[rm.EnvVar] = rcModel
+		if isStandardAnthropicModel(rcModel) {
+			continue
+		}
+		env[rm.EnvVar+"_NAME"] = rcModel
+		if caps := buildClaudeCodeCapabilities(rc); caps != "" {
+			env[rm.EnvVar+"_SUPPORTED_CAPABILITIES"] = caps
+		}
+	}
+}
+
+func setA2OModelEnv(env map[string]string, connectorID, model string, conn connector.Connector) {
+	env["ANTHROPIC_BASE_URL"] = fmt.Sprintf("http://127.0.0.1:%d/c/%s", defaultA2OPort, connectorID)
+	env["ANTHROPIC_API_KEY"] = "dummy"
+	env["ANTHROPIC_MODEL"] = model
+	env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+	env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
+	env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
+
+	if !isStandardAnthropicModel(model) {
+		env["ANTHROPIC_CUSTOM_MODEL_OPTION"] = model
+		env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"] = model
+		env["ANTHROPIC_DEFAULT_OPUS_MODEL_NAME"] = model
+		env["ANTHROPIC_DEFAULT_SONNET_MODEL_NAME"] = model
+		env["ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME"] = model
+		if caps := buildClaudeCodeCapabilities(conn); caps != "" {
+			env["ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES"] = caps
+			env["ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES"] = caps
+			env["ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES"] = caps
+			env["ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES"] = caps
+		}
+	}
+}
+
+func applyA2ORoleOverrides(
+	env map[string]string,
+	roles map[string]connector.Connector,
+) {
+	for role, rm := range claudeRoleEnvMap {
+		if role == "default" {
+			continue
+		}
+		rc, ok := roles[role]
+		if !ok || rc == nil {
+			continue
+		}
+		var rcModel string
+		if lc, ok := rc.(goullm.LLMConnector); ok {
+			rcModel = lc.GetModel()
+		}
+		if rcModel == "" {
+			rcModel, _ = rc.Setting()["model"].(string)
+		}
+		if rcModel == "" {
+			continue
+		}
+		env[rm.EnvVar] = rcModel
+		if !isStandardAnthropicModel(rcModel) {
+			env[rm.EnvVar+"_NAME"] = rcModel
+			if caps := buildClaudeCodeCapabilities(rc); caps != "" {
+				env[rm.EnvVar+"_SUPPORTED_CAPABILITIES"] = caps
+			}
+		}
+	}
 }

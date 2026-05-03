@@ -50,26 +50,12 @@ func newFakeAnthropic(id, host, model, key string) *fakeConn {
 	}
 }
 
-func registerFakeConnectors(t *testing.T, conns map[string]connector.Connector) func() {
-	t.Helper()
-	for id, c := range conns {
-		connector.Connectors[id] = c
-	}
-	return func() {
-		for id := range conns {
-			delete(connector.Connectors, id)
-		}
-	}
-}
-
 // ---------------------------------------------------------------------------
 // injectRoleProviders tests
 // ---------------------------------------------------------------------------
 
 func TestInjectRoleProviders_VisionCustomProvider(t *testing.T) {
 	visionConn := newFakeOpenAI("vis", "https://api.mymaas.com/v1", "gpt-4o-mini", "sk-vis")
-	cleanup := registerFakeConnectors(t, map[string]connector.Connector{"vision-conn": visionConn})
-	defer cleanup()
 
 	primaryConn := newFakeOpenAI("primary", "https://api.deepseek.com", "deepseek-v4-flash", "sk-ds")
 	cfg := map[string]any{
@@ -80,12 +66,10 @@ func TestInjectRoleProviders_VisionCustomProvider(t *testing.T) {
 
 	req := &types.PrepareRequest{
 		Connector: primaryConn,
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"vision": {Connector: "vision-conn", Override: "force"},
-				},
-			},
+		Config:    &types.SandboxConfig{},
+		Roles: map[string]connector.Connector{
+			"default": primaryConn,
+			"vision":  visionConn,
 		},
 	}
 
@@ -117,8 +101,6 @@ func TestInjectRoleProviders_VisionCustomProvider(t *testing.T) {
 
 func TestInjectRoleProviders_VisionNativeOpenAI(t *testing.T) {
 	visionConn := newFakeOpenAI("vis", "", "gpt-4o-mini", "sk-oai")
-	cleanup := registerFakeConnectors(t, map[string]connector.Connector{"oai-vision": visionConn})
-	defer cleanup()
 
 	primaryConn := newFakeOpenAI("primary", "https://api.deepseek.com", "deepseek-v4-flash", "sk-ds")
 	cfg := map[string]any{
@@ -129,12 +111,10 @@ func TestInjectRoleProviders_VisionNativeOpenAI(t *testing.T) {
 
 	req := &types.PrepareRequest{
 		Connector: primaryConn,
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"vision": {Connector: "oai-vision", Override: "force"},
-				},
-			},
+		Config:    &types.SandboxConfig{},
+		Roles: map[string]connector.Connector{
+			"default": primaryConn,
+			"vision":  visionConn,
 		},
 	}
 
@@ -148,8 +128,6 @@ func TestInjectRoleProviders_VisionNativeOpenAI(t *testing.T) {
 
 func TestInjectRoleProviders_LightWithDifferentHost(t *testing.T) {
 	lightConn := newFakeOpenAI("moonshot", "https://api.moonshot.cn/v1", "moonshot-v1-8k", "sk-moon")
-	cleanup := registerFakeConnectors(t, map[string]connector.Connector{"moonshot-conn": lightConn})
-	defer cleanup()
 
 	primaryConn := newFakeOpenAI("primary", "https://api.deepseek.com", "deepseek-v4-flash", "sk-ds")
 	cfg := map[string]any{
@@ -160,12 +138,10 @@ func TestInjectRoleProviders_LightWithDifferentHost(t *testing.T) {
 
 	req := &types.PrepareRequest{
 		Connector: primaryConn,
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"light": {Connector: "moonshot-conn", Override: "force"},
-				},
-			},
+		Config:    &types.SandboxConfig{},
+		Roles: map[string]connector.Connector{
+			"default": primaryConn,
+			"light":   lightConn,
 		},
 	}
 
@@ -198,8 +174,6 @@ func TestInjectRoleProviders_LightWithDifferentHost(t *testing.T) {
 
 func TestInjectRoleProviders_LightSameHostAsPrimary(t *testing.T) {
 	lightConn := newFakeOpenAI("ds-light", "https://api.deepseek.com", "deepseek-chat", "sk-ds")
-	cleanup := registerFakeConnectors(t, map[string]connector.Connector{"ds-light-conn": lightConn})
-	defer cleanup()
 
 	primaryConn := newFakeOpenAI("primary", "https://api.deepseek.com", "deepseek-v4-flash", "sk-ds")
 	primaryProviderID, primaryCfg, modelStr := buildProviderConfig(primaryConn)
@@ -212,12 +186,10 @@ func TestInjectRoleProviders_LightSameHostAsPrimary(t *testing.T) {
 
 	req := &types.PrepareRequest{
 		Connector: primaryConn,
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"light": {Connector: "ds-light-conn", Override: "force"},
-				},
-			},
+		Config:    &types.SandboxConfig{},
+		Roles: map[string]connector.Connector{
+			"default": primaryConn,
+			"light":   lightConn,
 		},
 	}
 
@@ -263,8 +235,6 @@ func TestInjectRoleProviders_NoConnectors(t *testing.T) {
 
 func TestInjectRoleProviders_AnthropicVision(t *testing.T) {
 	visionConn := newFakeAnthropic("claude-vis", "https://api.anthropic.com", "claude-sonnet-4-5-20250929", "sk-ant")
-	cleanup := registerFakeConnectors(t, map[string]connector.Connector{"anthropic-vision": visionConn})
-	defer cleanup()
 
 	primaryConn := newFakeOpenAI("primary", "https://api.deepseek.com", "deepseek-v4-flash", "sk-ds")
 	cfg := map[string]any{
@@ -275,12 +245,10 @@ func TestInjectRoleProviders_AnthropicVision(t *testing.T) {
 
 	req := &types.PrepareRequest{
 		Connector: primaryConn,
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"vision": {Connector: "anthropic-vision", Override: "force"},
-				},
-			},
+		Config:    &types.SandboxConfig{},
+		Roles: map[string]connector.Connector{
+			"default": primaryConn,
+			"vision":  visionConn,
 		},
 	}
 
@@ -304,16 +272,11 @@ func TestInjectRoleProviders_AnthropicVision(t *testing.T) {
 
 func TestInjectRoleEnvVars_Vision(t *testing.T) {
 	visionConn := newFakeOpenAI("vis", "https://api.mymaas.com/v1", "gpt-4o-mini", "sk-vis-key")
-	cleanup := registerFakeConnectors(t, map[string]connector.Connector{"vision-conn": visionConn})
-	defer cleanup()
 
 	req := &types.StreamRequest{
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"vision": {Connector: "vision-conn", Override: "force"},
-				},
-			},
+		Config: &types.SandboxConfig{},
+		Roles: map[string]connector.Connector{
+			"vision": visionConn,
 		},
 	}
 
@@ -333,16 +296,11 @@ func TestInjectRoleEnvVars_Vision(t *testing.T) {
 
 func TestInjectRoleEnvVars_Light(t *testing.T) {
 	lightConn := newFakeOpenAI("moon", "https://api.moonshot.cn/v1", "moonshot-v1-8k", "sk-moon")
-	cleanup := registerFakeConnectors(t, map[string]connector.Connector{"moon-conn": lightConn})
-	defer cleanup()
 
 	req := &types.StreamRequest{
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"light": {Connector: "moon-conn", Override: "force"},
-				},
-			},
+		Config: &types.SandboxConfig{},
+		Roles: map[string]connector.Connector{
+			"light": lightConn,
 		},
 	}
 
@@ -381,20 +339,11 @@ func TestInjectRoleEnvVars_MultipleRoles(t *testing.T) {
 	visionConn := newFakeOpenAI("vis", "https://api.vision.com", "vis-model", "sk-vis")
 	lightConn := newFakeOpenAI("light-c", "https://api.light.com", "light-model", "sk-light")
 
-	cleanup := registerFakeConnectors(t, map[string]connector.Connector{
-		"vis-c":   visionConn,
-		"light-c": lightConn,
-	})
-	defer cleanup()
-
 	req := &types.StreamRequest{
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"vision": {Connector: "vis-c", Override: "force"},
-					"light":  {Connector: "light-c", Override: "force"},
-				},
-			},
+		Config: &types.SandboxConfig{},
+		Roles: map[string]connector.Connector{
+			"vision": visionConn,
+			"light":  lightConn,
 		},
 	}
 
@@ -416,23 +365,16 @@ func TestInjectRoleEnvVars_MultipleRoles(t *testing.T) {
 func TestBuildOpenCodeConfig_WithVisionAndLight(t *testing.T) {
 	visionConn := newFakeOpenAI("vis", "https://api.mymaas.com/v1", "gpt-4o-mini", "sk-vis")
 	lightConn := newFakeOpenAI("moon", "https://api.moonshot.cn/v1", "moonshot-v1-8k", "sk-moon")
-	cleanup := registerFakeConnectors(t, map[string]connector.Connector{
-		"vision-conn": visionConn,
-		"light-conn":  lightConn,
-	})
-	defer cleanup()
 
 	primaryConn := newFakeOpenAI("primary", "https://api.deepseek.com", "deepseek-v4-flash", "sk-ds")
 	req := &types.PrepareRequest{
 		AssistantID: "test-assistant",
 		Connector:   primaryConn,
-		Config: &types.SandboxConfig{
-			Runner: types.RunnerConfig{
-				Connectors: map[string]*types.RoleConnector{
-					"vision": {Connector: "vision-conn", Override: "force"},
-					"light":  {Connector: "light-conn", Override: "force"},
-				},
-			},
+		Config:      &types.SandboxConfig{},
+		Roles: map[string]connector.Connector{
+			"default": primaryConn,
+			"vision":  visionConn,
+			"light":   lightConn,
 		},
 	}
 
@@ -480,18 +422,13 @@ func TestBuildOpenCodeConfig_WithVisionAndLight(t *testing.T) {
 func TestResolvePrimaryConnector_HeavyConfigured(t *testing.T) {
 	defaultConn := newFakeOpenAI("default", "https://api.deepseek.com", "deepseek-chat", "sk-ds")
 	heavyConn := newFakeOpenAI("heavy", "https://api.openai.com", "o3-pro", "sk-oai")
-	cleanup := registerFakeConnectors(t, map[string]connector.Connector{"heavy-conn": heavyConn})
-	defer cleanup()
 
-	cfg := &types.SandboxConfig{
-		Runner: types.RunnerConfig{
-			Connectors: map[string]*types.RoleConnector{
-				"heavy": {Connector: "heavy-conn", Override: "force"},
-			},
-		},
+	roles := map[string]connector.Connector{
+		"default": defaultConn,
+		"heavy":   heavyConn,
 	}
 
-	result := resolvePrimaryConnector(defaultConn, cfg)
+	result := resolvePrimaryConnector(defaultConn, roles)
 	if result != heavyConn {
 		t.Error("should return heavy connector when configured")
 	}
@@ -499,43 +436,24 @@ func TestResolvePrimaryConnector_HeavyConfigured(t *testing.T) {
 
 func TestResolvePrimaryConnector_NoHeavy(t *testing.T) {
 	defaultConn := newFakeOpenAI("default", "https://api.deepseek.com", "deepseek-chat", "sk-ds")
+	lightConn := newFakeOpenAI("light", "https://api.moonshot.cn", "moon-v1", "sk-moon")
 
-	cfg := &types.SandboxConfig{
-		Runner: types.RunnerConfig{
-			Connectors: map[string]*types.RoleConnector{
-				"light": {Connector: "light-conn", Override: "force"},
-			},
-		},
+	roles := map[string]connector.Connector{
+		"default": defaultConn,
+		"light":   lightConn,
 	}
 
-	result := resolvePrimaryConnector(defaultConn, cfg)
+	result := resolvePrimaryConnector(defaultConn, roles)
 	if result != defaultConn {
 		t.Error("should fallback to default when heavy not configured")
 	}
 }
 
-func TestResolvePrimaryConnector_HeavyNotRegistered(t *testing.T) {
-	defaultConn := newFakeOpenAI("default", "https://api.deepseek.com", "deepseek-chat", "sk-ds")
-
-	cfg := &types.SandboxConfig{
-		Runner: types.RunnerConfig{
-			Connectors: map[string]*types.RoleConnector{
-				"heavy": {Connector: "nonexistent-conn", Override: "force"},
-			},
-		},
-	}
-
-	result := resolvePrimaryConnector(defaultConn, cfg)
-	if result != defaultConn {
-		t.Error("should fallback to default when heavy connector not registered")
-	}
-}
-
-func TestResolvePrimaryConnector_NilConfig(t *testing.T) {
+func TestResolvePrimaryConnector_NilRoles(t *testing.T) {
 	defaultConn := newFakeOpenAI("default", "https://api.deepseek.com", "deepseek-chat", "sk-ds")
 
 	result := resolvePrimaryConnector(defaultConn, nil)
 	if result != defaultConn {
-		t.Error("should return default when config is nil")
+		t.Error("should return default when roles is nil")
 	}
 }

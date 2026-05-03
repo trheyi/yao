@@ -86,33 +86,132 @@ func llmModelsURL(apiURL string) string {
 	return apiURL + "/v1/models"
 }
 
-// llmValidateKey tests connectivity by calling GET {apiURL}/models.
-// providerType controls the auth header format (anthropic uses x-api-key).
+// llmCompletionURL builds the chat/messages endpoint URL.
+func llmCompletionURL(providerType, apiURL string) string {
+	endpoint := "chat/completions"
+	if providerType == "anthropic" {
+		endpoint = "messages"
+	}
+	if strings.HasSuffix(apiURL, "/") {
+		return apiURL + endpoint
+	}
+	return apiURL + "/v1/" + endpoint
+}
+
+// llmSetAuthHeader sets the appropriate auth header for the provider type.
+func llmSetAuthHeader(req *http.Request, providerType, apiKey string) {
+	if apiKey == "" {
+		return
+	}
+	if providerType == "anthropic" {
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	} else {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+}
+
+// llmValidateKey tests connectivity and API key validity using a three-step
+// approach that works across all provider types (OpenAI, Anthropic, and
+// third-party compatible APIs) without incurring any token costs:
+//
+//  1. POST to real completion endpoint with empty messages (zero cost).
+//     401/403 → invalid key. Other response → connection works, proceed.
+//  2. GET /models to confirm key validity.
+//     200 → key valid. 401/403 → invalid key. 404 → endpoint unsupported,
+//     trust step-1 result. Other → report error.
+//  3. If step-1 returned 404 (model-based routing, e.g. NVIDIA) AND step-2
+//     returned 200, the /models endpoint may be public. Pick the first model
+//     from the response and POST again with that real model + empty messages.
 func llmValidateKey(providerType, apiURL, apiKey string) error {
-	url := llmModelsURL(apiURL)
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest("GET", url, nil)
+
+	// --- Step 1: POST real endpoint with fake model + empty messages ---
+	postURL := llmCompletionURL(providerType, apiURL)
+	req, err := http.NewRequest("POST", postURL, strings.NewReader(`{"model":"_","messages":[]}`))
 	if err != nil {
 		return fmt.Errorf("failed to build request: %w", err)
 	}
-	if apiKey != "" {
-		if providerType == "anthropic" {
-			req.Header.Set("x-api-key", apiKey)
-			req.Header.Set("anthropic-version", "2023-06-01")
-		} else {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		}
-	}
+	req.Header.Set("Content-Type", "application/json")
+	llmSetAuthHeader(req, providerType, apiKey)
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	resp.Body.Close()
+
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return fmt.Errorf("invalid API key (HTTP %d)", resp.StatusCode)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned HTTP %d", resp.StatusCode)
+	postStatus := resp.StatusCode
+
+	// --- Step 2: GET /models to confirm key ---
+	req2, err := http.NewRequest("GET", llmModelsURL(apiURL), nil)
+	if err != nil {
+		return nil
+	}
+	llmSetAuthHeader(req2, providerType, apiKey)
+
+	resp2, err := client.Do(req2)
+	if err != nil {
+		return nil // POST connected, GET network failure is non-fatal
+	}
+
+	modelsStatus := resp2.StatusCode
+	var modelsBody []byte
+	if modelsStatus == http.StatusOK {
+		modelsBody, _ = io.ReadAll(resp2.Body)
+	}
+	resp2.Body.Close()
+
+	if modelsStatus == http.StatusUnauthorized || modelsStatus == http.StatusForbidden {
+		return fmt.Errorf("invalid API key (HTTP %d)", modelsStatus)
+	}
+	if modelsStatus == http.StatusNotFound {
+		return nil
+	}
+	if modelsStatus == http.StatusOK {
+		if postStatus == http.StatusNotFound && len(modelsBody) > 0 {
+			return llmValidateWithModel(client, providerType, apiURL, apiKey, modelsBody)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("server returned HTTP %d", modelsStatus)
+}
+
+// llmValidateWithModel is the step-3 fallback for providers whose /models
+// endpoint is public (always 200). It picks the first model from the /models
+// response and POSTs to the completion endpoint with that model + empty
+// messages to trigger a real auth check.
+func llmValidateWithModel(client *http.Client, providerType, apiURL, apiKey string, modelsBody []byte) error {
+	var parsed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(modelsBody, &parsed); err != nil || len(parsed.Data) == 0 {
+		return nil
+	}
+
+	postURL := llmCompletionURL(providerType, apiURL)
+	body := fmt.Sprintf(`{"model":%q,"messages":[]}`, parsed.Data[0].ID)
+	req, err := http.NewRequest("POST", postURL, strings.NewReader(body))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	llmSetAuthHeader(req, providerType, apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("invalid API key (HTTP %d)", resp.StatusCode)
 	}
 	return nil
 }
@@ -366,39 +465,14 @@ func handleLLMTest(c *gin.Context) {
 		return
 	}
 
-	url := llmModelsURL(input.APIURL)
 	start := time.Now()
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if input.APIKey != "" {
-		if input.Type == "anthropic" {
-			req.Header.Set("x-api-key", input.APIKey)
-			req.Header.Set("anthropic-version", "2023-06-01")
-		} else {
-			req.Header.Set("Authorization", "Bearer "+input.APIKey)
-		}
-	}
-
-	resp, err := client.Do(req)
+	err := llmValidateKey(input.Type, input.APIURL, input.APIKey)
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
 		response.RespondWithSuccess(c, http.StatusOK, llmprovider.ProviderTestResult{
 			Success: false,
-			Message: fmt.Sprintf("Connection failed: %s", err.Error()),
-		})
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		response.RespondWithSuccess(c, http.StatusOK, llmprovider.ProviderTestResult{
-			Success: false,
-			Message: fmt.Sprintf("Server returned HTTP %d", resp.StatusCode),
+			Message: err.Error(),
 		})
 		return
 	}

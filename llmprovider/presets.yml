@@ -485,7 +485,8 @@
       max_output_tokens: 384000
       capabilities: [tool_calls, streaming, json]
       options:
-        enable_thinking: false
+        thinking:
+          type: disabled
       enabled: false
     - id: deepseek-v4-pro-thinking
       model: deepseek-v4-pro
@@ -494,20 +495,34 @@
       max_output_tokens: 384000
       capabilities: [tool_calls, streaming, json, reasoning]
       options:
-        enable_thinking: true
+        thinking:
+          type: enabled
       enabled: true
     - id: deepseek-v4-flash
       name: DeepSeek V4 Flash
       max_input_tokens: 1048576
       max_output_tokens: 384000
       capabilities: [tool_calls, streaming, json]
+      options:
+        thinking:
+          type: disabled
       enabled: true
+    - id: deepseek-v4-flash-thinking
+      model: deepseek-v4-flash
+      name: DeepSeek V4 Flash Thinking
+      max_input_tokens: 1048576
+      max_output_tokens: 384000
+      capabilities: [tool_calls, streaming, json, reasoning]
+      options:
+        thinking:
+          type: enabled
+      enabled: false
 
 # ─── DeepSeek (Anthropic) ───────────────────────────────
 - key: deepseek_anthropic
   name: DeepSeek (Anthropic)
   type: anthropic
-  api_url: https://api.deepseek.com
+  api_url: https://api.deepseek.com/anthropic
   require_key: true
   default_models:
     - id: deepseek-v4-pro
@@ -515,6 +530,9 @@
       max_input_tokens: 1048576
       max_output_tokens: 384000
       capabilities: [tool_calls, streaming, json]
+      options:
+        thinking:
+          type: disabled
       enabled: false
     - id: deepseek-v4-pro-thinking
       model: deepseek-v4-pro
@@ -532,7 +550,21 @@
       max_input_tokens: 1048576
       max_output_tokens: 384000
       capabilities: [tool_calls, streaming, json]
+      options:
+        thinking:
+          type: disabled
       enabled: true
+    - id: deepseek-v4-flash-thinking
+      model: deepseek-v4-flash
+      name: DeepSeek V4 Flash Thinking
+      max_input_tokens: 1048576
+      max_output_tokens: 384000
+      capabilities: [tool_calls, streaming, json, reasoning]
+      options:
+        thinking:
+          type: enabled
+          budget_tokens: 32000
+      enabled: false
 
 # ─── Kimi / Moonshot (International) ────────────────────
 - key: kimi_intl
