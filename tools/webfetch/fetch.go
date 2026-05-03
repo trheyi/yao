@@ -22,6 +22,8 @@ const (
 	browserUserAgent  = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
+var brightdataEndpoint = "https://api.brightdata.com/request"
+
 type fetchResult struct {
 	Body        []byte
 	StatusCode  int
@@ -69,7 +71,7 @@ func brightdataFetch(targetURL, apiKey, zone string) ([]byte, error) {
 	})
 
 	client := &http.Client{Timeout: brightdataTimeout}
-	req, err := http.NewRequest(http.MethodPost, "https://api.brightdata.com/request", bytes.NewReader(payload))
+	req, err := http.NewRequest(http.MethodPost, brightdataEndpoint, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build brightdata request: %w", err)
 	}
@@ -108,8 +110,22 @@ func headCheck(url string) (int, error) {
 	return resp.StatusCode, nil
 }
 
-// fetchHTML tries direct GET first, falls back to Brightdata.
+// fetchHTML fetches HTML content. When provider is "brightdata", Brightdata is
+// tried first with direct fetch as fallback; otherwise direct fetch comes first.
 func fetchHTML(cfg *fetchConfig, targetURL string) *FetchResponse {
+	if cfg.Provider == "brightdata" && cfg.BrightdataKey != "" {
+		body, err := brightdataFetch(targetURL, cfg.BrightdataKey, cfg.BrightdataZone)
+		if err == nil {
+			htmlStr := string(body)
+			return &FetchResponse{
+				URL:     targetURL,
+				Title:   ExtractTitle(htmlStr),
+				Content: ExtractContent(htmlStr),
+				Format:  "html",
+			}
+		}
+	}
+
 	res, err := directFetch(targetURL, false)
 	if err == nil && res.StatusCode == 200 && len(res.Body) >= minDirectBody {
 		htmlStr := string(res.Body)
@@ -121,7 +137,7 @@ func fetchHTML(cfg *fetchConfig, targetURL string) *FetchResponse {
 		}
 	}
 
-	if cfg.BrightdataKey != "" {
+	if cfg.Provider != "brightdata" && cfg.BrightdataKey != "" {
 		body, err := brightdataFetch(targetURL, cfg.BrightdataKey, cfg.BrightdataZone)
 		if err == nil {
 			htmlStr := string(body)
@@ -146,7 +162,6 @@ func fetchMarkdown(cfg *fetchConfig, targetURL string) *FetchResponse {
 	lower := strings.ToLower(targetURL)
 	ext := strings.ToLower(path.Ext(strings.TrimSuffix(lower, "/")))
 
-	// Already a .md file
 	if ext == ".md" || ext == ".mdx" {
 		res, err := directFetch(targetURL, true)
 		if err == nil && res.StatusCode == 200 && len(res.Body) >= minMarkdownBody {
@@ -158,13 +173,12 @@ func fetchMarkdown(cfg *fetchConfig, targetURL string) *FetchResponse {
 		}
 	}
 
-	// Probe for .md version
 	mdURL := buildMdURL(targetURL)
 	if mdURL != "" {
 		code, err := headCheck(mdURL)
 		if err == nil && code == 200 {
 			res, err := directFetch(mdURL, true)
-			if err == nil && res.StatusCode == 200 && len(res.Body) >= minMarkdownBody {
+			if err == nil && res.StatusCode == 200 && len(res.Body) >= minMarkdownBody && !isHTMLContent(res.ContentType, res.Body) {
 				return &FetchResponse{
 					URL:     targetURL,
 					Content: string(res.Body),
@@ -174,7 +188,6 @@ func fetchMarkdown(cfg *fetchConfig, targetURL string) *FetchResponse {
 		}
 	}
 
-	// Fallback: fetch HTML and convert
 	htmlRes := fetchRawHTML(cfg, targetURL)
 	if htmlRes == nil {
 		return &FetchResponse{
@@ -199,14 +212,22 @@ func fetchMarkdown(cfg *fetchConfig, targetURL string) *FetchResponse {
 	}
 }
 
-// fetchRawHTML fetches HTML with direct -> brightdata fallback.
+// fetchRawHTML fetches raw HTML. When provider is "brightdata", Brightdata is
+// tried first with direct fetch as fallback; otherwise direct fetch comes first.
 func fetchRawHTML(cfg *fetchConfig, targetURL string) []byte {
+	if cfg.Provider == "brightdata" && cfg.BrightdataKey != "" {
+		body, err := brightdataFetch(targetURL, cfg.BrightdataKey, cfg.BrightdataZone)
+		if err == nil {
+			return body
+		}
+	}
+
 	res, err := directFetch(targetURL, false)
 	if err == nil && res.StatusCode == 200 && len(res.Body) >= minDirectBody {
 		return res.Body
 	}
 
-	if cfg.BrightdataKey != "" {
+	if cfg.Provider != "brightdata" && cfg.BrightdataKey != "" {
 		body, err := brightdataFetch(targetURL, cfg.BrightdataKey, cfg.BrightdataZone)
 		if err == nil {
 			return body
@@ -222,6 +243,22 @@ func buildMdURL(u string) string {
 	}
 	trimmed := strings.TrimSuffix(u, "/")
 	return trimmed + ".md"
+}
+
+// isHTMLContent returns true if the response looks like HTML rather than
+// plain text or markdown, based on Content-Type header and body sniffing.
+func isHTMLContent(contentType string, body []byte) bool {
+	ct := strings.ToLower(contentType)
+	if strings.Contains(ct, "text/html") || strings.Contains(ct, "application/xhtml") {
+		return true
+	}
+	if len(body) > 0 {
+		prefix := strings.TrimSpace(strings.ToLower(string(body[:min(len(body), 256)])))
+		if strings.HasPrefix(prefix, "<!doctype") || strings.HasPrefix(prefix, "<html") {
+			return true
+		}
+	}
+	return false
 }
 
 func truncate(s string, n int) string {
