@@ -1,7 +1,7 @@
 {
-  "name": "processcall",
+  "name": "process_call",
   "description": "Execute a Yao process by name. Supports models, schemas, stores, flows, and scripts.",
-  "process": "tools.processcall",
+  "process": "tools.process_call",
   "inputSchema": {
     "type": "object",
     "properties": {

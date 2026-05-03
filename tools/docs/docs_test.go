@@ -31,7 +31,7 @@ func init() {
 }
 
 func TestListHandler_All(t *testing.T) {
-	proc := process.New("tools.doclist", "", 20)
+	proc := process.New("tools.doc_list", "", 20)
 	result := ListHandler(proc)
 	entries, ok := result.([]*goudoc.Entry)
 	if !ok {
@@ -43,7 +43,7 @@ func TestListHandler_All(t *testing.T) {
 }
 
 func TestListHandler_Search(t *testing.T) {
-	proc := process.New("tools.doclist", "Find", 10)
+	proc := process.New("tools.doc_list", "Find", 10)
 	result := ListHandler(proc)
 	entries, ok := result.([]*goudoc.Entry)
 	if !ok {
@@ -58,7 +58,7 @@ func TestListHandler_Search(t *testing.T) {
 }
 
 func TestInspectHandler(t *testing.T) {
-	proc := process.New("tools.docinspect", "models.Find")
+	proc := process.New("tools.doc_inspect", "models.Find")
 	result := InspectHandler(proc)
 	if result == nil {
 		t.Fatal("expected non-nil result for models.Find")
@@ -73,7 +73,7 @@ func TestInspectHandler(t *testing.T) {
 }
 
 func TestInspectHandler_NotFound(t *testing.T) {
-	proc := process.New("tools.docinspect", "nonexistent.process")
+	proc := process.New("tools.doc_inspect", "nonexistent.process")
 	result := InspectHandler(proc)
 	if result != nil {
 		t.Error("expected nil for non-existent process")
@@ -81,7 +81,7 @@ func TestInspectHandler_NotFound(t *testing.T) {
 }
 
 func TestValidateHandler_Valid(t *testing.T) {
-	proc := process.New("tools.docvalidate", "models.Find")
+	proc := process.New("tools.doc_validate", "models.Find")
 	result := ValidateHandler(proc)
 	if result == nil {
 		t.Fatal("expected non-nil result")
@@ -96,7 +96,7 @@ func TestValidateHandler_Valid(t *testing.T) {
 }
 
 func TestValidateHandler_Invalid(t *testing.T) {
-	proc := process.New("tools.docvalidate", "nonexistent.process")
+	proc := process.New("tools.doc_validate", "nonexistent.process")
 	result := ValidateHandler(proc)
 	if result == nil {
 		t.Fatal("expected non-nil result")

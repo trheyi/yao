@@ -27,7 +27,7 @@ type searchConfig struct {
 	CloudTool string // cloud search tool name, e.g. "serper-search", "tavily-search"
 }
 
-// Handler is the tools.websearch process handler.
+// Handler is the tools.web_search process handler.
 // Args[0]: query (string)
 // Args[1]: limit (int, default 10)
 func Handler(proc *process.Process) interface{} {

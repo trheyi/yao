@@ -1,7 +1,7 @@
 {
-  "name": "docvalidate",
+  "name": "doc_validate",
   "description": "Check if a Yao process has documentation. Returns validation status and suggestions for similar processes if not found.",
-  "process": "tools.docvalidate",
+  "process": "tools.doc_validate",
   "inputSchema": {
     "type": "object",
     "properties": {

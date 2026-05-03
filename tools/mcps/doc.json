@@ -3,8 +3,8 @@
   "transport": "process",
   "description": "Yao process documentation tools",
   "tools": {
-    "doclist": "tools.doclist",
-    "docinspect": "tools.docinspect",
-    "docvalidate": "tools.docvalidate"
+    "doc_list": "tools.doc_list",
+    "doc_inspect": "tools.doc_inspect",
+    "doc_validate": "tools.doc_validate"
   }
 }

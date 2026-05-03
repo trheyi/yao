@@ -28,7 +28,7 @@ type fetchConfig struct {
 	BrightdataZone string
 }
 
-// Handler is the tools.webfetch process handler.
+// Handler is the tools.web_fetch process handler.
 // Args[0]: url (string)
 // Args[1]: format (string, default "markdown")
 func Handler(proc *process.Process) interface{} {

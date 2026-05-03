@@ -25,18 +25,19 @@ var mcpDocDSL []byte
 
 func init() {
 	process.RegisterGroup("tools", map[string]process.Handler{
-		"websearch":   websearch.Handler,
-		"webfetch":    webfetch.Handler,
-		"processcall": proc.Handler,
-		"doclist":     docs.ListHandler,
-		"docinspect":  docs.InspectHandler,
-		"docvalidate": docs.ValidateHandler,
+		"web_search":      websearch.Handler,
+		"web_fetch":       webfetch.Handler,
+		"process_call":    proc.Handler,
+		"process_allowed": proc.AllowedHandler,
+		"doc_list":        docs.ListHandler,
+		"doc_inspect":     docs.InspectHandler,
+		"doc_validate":    docs.ValidateHandler,
 	})
 
 	registerMCPServer(mcpWebDSL, "yao-web",
 		websearch.SchemaJSON, webfetch.SchemaJSON)
 	registerMCPServer(mcpProcessDSL, "yao-process",
-		proc.SchemaJSON)
+		proc.SchemaJSON, proc.AllowedSchemaJSON)
 	registerMCPServer(mcpDocDSL, "yao-doc",
 		docs.ListSchemaJSON, docs.InspectSchemaJSON, docs.ValidateSchemaJSON)
 }

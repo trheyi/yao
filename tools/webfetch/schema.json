@@ -1,7 +1,7 @@
 {
-  "name": "webfetch",
+  "name": "web_fetch",
   "description": "Fetch a web page and return its content. Supports markdown and HTML output formats.",
-  "process": "tools.webfetch",
+  "process": "tools.web_fetch",
   "inputSchema": {
     "type": "object",
     "properties": {

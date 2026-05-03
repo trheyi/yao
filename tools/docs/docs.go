@@ -16,7 +16,7 @@ var InspectSchemaJSON []byte
 //go:embed validate.json
 var ValidateSchemaJSON []byte
 
-// ListHandler is the tools.doclist process handler.
+// ListHandler is the tools.doc_list process handler.
 // Args[0]: keyword (string, optional — empty lists all)
 // Args[1]: limit (int, default 20)
 func ListHandler(proc *process.Process) interface{} {
@@ -35,7 +35,7 @@ func ListHandler(proc *process.Process) interface{} {
 	return results
 }
 
-// InspectHandler is the tools.docinspect process handler.
+// InspectHandler is the tools.doc_inspect process handler.
 // Args[0]: name (string — process name, e.g. "models.user.Find")
 func InspectHandler(proc *process.Process) interface{} {
 	name := proc.ArgsString(0)
@@ -46,7 +46,7 @@ func InspectHandler(proc *process.Process) interface{} {
 	return entry
 }
 
-// ValidateHandler is the tools.docvalidate process handler.
+// ValidateHandler is the tools.doc_validate process handler.
 // Args[0]: name (string — process name)
 func ValidateHandler(proc *process.Process) interface{} {
 	name := proc.ArgsString(0)

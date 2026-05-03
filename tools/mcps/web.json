@@ -3,7 +3,7 @@
   "transport": "process",
   "description": "Web search and fetch tools",
   "tools": {
-    "websearch": "tools.websearch",
-    "webfetch": "tools.webfetch"
+    "web_search": "tools.web_search",
+    "web_fetch": "tools.web_fetch"
   }
 }

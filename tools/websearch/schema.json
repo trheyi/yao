@@ -1,7 +1,7 @@
 {
-  "name": "websearch",
+  "name": "web_search",
   "description": "Search the web for real-time information. Returns structured results with title, URL, and content snippet.",
-  "process": "tools.websearch",
+  "process": "tools.web_search",
   "inputSchema": {
     "type": "object",
     "properties": {

@@ -552,7 +552,7 @@ func (ast *Assistant) executeServerToolsParallelWithTrace(mcpCtx context.Context
 	// Prepare parallel trace inputs
 	var parallelInputs []types.TraceParallelInput
 	mcpCalls := make([]mcpTypes.ToolCall, 0, len(toolCalls))
-	callMap := make(map[string]agentContext.ToolCall)
+	orderedCalls := make([]agentContext.ToolCall, 0, len(toolCalls))
 
 	for _, tc := range toolCalls {
 		_, toolName, ok := ParseMCPToolName(tc.Function.Name)
@@ -572,7 +572,7 @@ func (ast *Assistant) executeServerToolsParallelWithTrace(mcpCtx context.Context
 			Name:      toolName,
 			Arguments: args,
 		})
-		callMap[toolName] = tc
+		orderedCalls = append(orderedCalls, tc)
 		ctx.Logger.ToolStart(tc.Function.Name)
 
 		// Add trace input for this tool
@@ -613,10 +613,8 @@ func (ast *Assistant) executeServerToolsParallelWithTrace(mcpCtx context.Context
 			if node != nil {
 				node.Fail(err)
 			}
-			if i < len(mcpCalls) {
-				if tc, ok := callMap[mcpCalls[i].Name]; ok {
-					ctx.Logger.ToolComplete(tc.Function.Name, false)
-				}
+			if i < len(orderedCalls) {
+				ctx.Logger.ToolComplete(orderedCalls[i].Function.Name, false)
 			}
 		}
 		return nil, true
@@ -628,7 +626,7 @@ func (ast *Assistant) executeServerToolsParallelWithTrace(mcpCtx context.Context
 
 	for i, mcpResult := range mcpResponse.Results {
 		toolName := mcpCalls[i].Name
-		originalCall := callMap[toolName]
+		originalCall := orderedCalls[i]
 		var toolNode types.Node
 		if i < len(toolNodes) {
 			toolNode = toolNodes[i]

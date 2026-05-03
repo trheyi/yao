@@ -1,7 +1,7 @@
 {
-  "name": "docinspect",
+  "name": "doc_inspect",
   "description": "Get detailed documentation for a specific Yao process, including arguments, return type, and methods.",
-  "process": "tools.docinspect",
+  "process": "tools.doc_inspect",
   "inputSchema": {
     "type": "object",
     "properties": {

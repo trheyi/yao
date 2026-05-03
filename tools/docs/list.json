@@ -1,7 +1,7 @@
 {
-  "name": "doclist",
+  "name": "doc_list",
   "description": "List or search Yao process documentation. Returns matching entries with name, group, and description.",
-  "process": "tools.doclist",
+  "process": "tools.doc_list",
   "inputSchema": {
     "type": "object",
     "properties": {

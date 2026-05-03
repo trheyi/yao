@@ -3,6 +3,7 @@
   "transport": "process",
   "description": "Yao process execution tool",
   "tools": {
-    "processcall": "tools.processcall"
+    "process_call": "tools.process_call",
+    "process_allowed": "tools.process_allowed"
   }
 }
