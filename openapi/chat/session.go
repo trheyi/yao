@@ -101,6 +101,10 @@ func GetChat(c *gin.Context) {
 	// Check permission
 	hasPermission, err := checkChatPermission(chatStore, authInfo, chatID, true)
 	if err != nil {
+		if isNotFoundError(err) {
+			respondNotFound(c, chatID)
+			return
+		}
 		errorResp := &response.ErrorResponse{
 			Code:             response.ErrServerError.Code,
 			ErrorDescription: err.Error(),
@@ -121,16 +125,10 @@ func GetChat(c *gin.Context) {
 	// Get chat
 	chat, err := chatStore.GetChat(chatID)
 	if err != nil {
-		// Check if it's a "not found" error
-		if strings.Contains(err.Error(), "not found") {
-			errorResp := &response.ErrorResponse{
-				Code:             response.ErrInvalidRequest.Code,
-				ErrorDescription: "Chat not found",
-			}
-			response.RespondWithError(c, response.StatusNotFound, errorResp)
+		if isNotFoundError(err) {
+			respondNotFound(c, chatID)
 			return
 		}
-
 		errorResp := &response.ErrorResponse{
 			Code:             response.ErrServerError.Code,
 			ErrorDescription: err.Error(),
@@ -184,6 +182,10 @@ func UpdateChat(c *gin.Context) {
 	// Check permission (write access)
 	hasPermission, err := checkChatPermission(chatStore, authInfo, chatID, false)
 	if err != nil {
+		if isNotFoundError(err) {
+			respondNotFound(c, chatID)
+			return
+		}
 		errorResp := &response.ErrorResponse{
 			Code:             response.ErrServerError.Code,
 			ErrorDescription: err.Error(),
@@ -229,6 +231,10 @@ func UpdateChat(c *gin.Context) {
 
 	// Update chat
 	if err := chatStore.UpdateChat(chatID, updates); err != nil {
+		if isNotFoundError(err) {
+			respondNotFound(c, chatID)
+			return
+		}
 		errorResp := &response.ErrorResponse{
 			Code:             response.ErrServerError.Code,
 			ErrorDescription: err.Error(),
@@ -274,6 +280,10 @@ func DeleteChat(c *gin.Context) {
 	// Check permission (write access)
 	hasPermission, err := checkChatPermission(chatStore, authInfo, chatID, false)
 	if err != nil {
+		if isNotFoundError(err) {
+			respondNotFound(c, chatID)
+			return
+		}
 		errorResp := &response.ErrorResponse{
 			Code:             response.ErrServerError.Code,
 			ErrorDescription: err.Error(),
@@ -293,6 +303,10 @@ func DeleteChat(c *gin.Context) {
 
 	// Delete chat
 	if err := chatStore.DeleteChat(chatID); err != nil {
+		if isNotFoundError(err) {
+			respondNotFound(c, chatID)
+			return
+		}
 		errorResp := &response.ErrorResponse{
 			Code:             response.ErrServerError.Code,
 			ErrorDescription: err.Error(),
@@ -342,6 +356,10 @@ func GetMessages(c *gin.Context) {
 	// Check permission (read access)
 	hasPermission, err := checkChatPermission(chatStore, authInfo, chatID, true)
 	if err != nil {
+		if isNotFoundError(err) {
+			respondNotFound(c, chatID)
+			return
+		}
 		errorResp := &response.ErrorResponse{
 			Code:             response.ErrServerError.Code,
 			ErrorDescription: err.Error(),
@@ -365,6 +383,10 @@ func GetMessages(c *gin.Context) {
 	// Get messages
 	messages, err := chatStore.GetMessages(chatID, filter)
 	if err != nil {
+		if isNotFoundError(err) {
+			respondNotFound(c, chatID)
+			return
+		}
 		errorResp := &response.ErrorResponse{
 			Code:             response.ErrServerError.Code,
 			ErrorDescription: err.Error(),
@@ -549,6 +571,18 @@ func buildMessageFilter(c *gin.Context) storetypes.MessageFilter {
 	}
 
 	return filter
+}
+
+func isNotFoundError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "not found")
+}
+
+func respondNotFound(c *gin.Context, chatID string) {
+	errorResp := &response.ErrorResponse{
+		Code:             "resource_not_found",
+		ErrorDescription: "Chat " + chatID + " not found",
+	}
+	response.RespondWithError(c, response.StatusNotFound, errorResp)
 }
 
 // checkChatPermission checks if the user has permission to access the chat

@@ -74,6 +74,13 @@ func Attach(group *gin.RouterGroup, oauth oauthTypes.OAuth) {
 	sb.POST("/nodes/:nodeId/images/pull-all", handleSandboxPullAll)
 	sb.DELETE("/nodes/:nodeId/images/:imageId", handleSandboxImageDelete)
 	sb.POST("/nodes/:nodeId/check-docker", handleSandboxCheckDocker)
+
+	group.GET("/setup-status", handleSetupStatus)
+	group.GET("/setup-status/assistant/:id", handleAssistantSetupStatus)
+
+	pref := group.Group("/preference")
+	pref.GET("", handlePreferenceGet)
+	pref.PUT("", handlePreferenceUpdate)
 }
 
 // requireOwner checks that the current user is the team owner.
