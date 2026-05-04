@@ -1,21 +1,14 @@
 package setting
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha256"
 	_ "embed"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/yaoapp/yao/config"
 	"github.com/yaoapp/yao/openapi/oauth/authorized"
 	oauthTypes "github.com/yaoapp/yao/openapi/oauth/types"
 	"github.com/yaoapp/yao/openapi/response"
@@ -356,40 +349,20 @@ func handleCloudRefresh(c *gin.Context) {
 }
 
 // ---------------------------------------------------------------------------
-// Crypto helpers (AES-256-GCM, same scheme as llmprovider)
+// Crypto helpers – delegates to setting.Encrypt / setting.Decrypt
 // ---------------------------------------------------------------------------
 
 func cloudEncrypt(plaintext string) string {
-	secret := config.Conf.DB.AESKey
-	if secret == "" {
-		return plaintext
-	}
-	enc, err := cloudEncryptString(plaintext, secret)
-	if err != nil {
-		return plaintext
-	}
-	return cloudEncPrefix + enc
+	return setting.Encrypt(plaintext)
 }
 
 func cloudDecrypt(value string) string {
-	if !strings.HasPrefix(value, cloudEncPrefix) {
-		return value
-	}
-	secret := config.Conf.DB.AESKey
-	if secret == "" {
-		return strings.TrimPrefix(value, cloudEncPrefix)
-	}
-	dec, err := cloudDecryptString(strings.TrimPrefix(value, cloudEncPrefix), secret)
-	if err != nil {
-		return value
-	}
-	return dec
+	return setting.Decrypt(value)
 }
 
 // DecryptValue decrypts a value encrypted by cloudEncrypt.
-// Delegates to config.DecryptValue for the actual decryption.
 func DecryptValue(s string) string {
-	return config.DecryptValue(s)
+	return setting.Decrypt(s)
 }
 
 func cloudMaskKey(key string) string {
@@ -402,52 +375,4 @@ func cloudMaskKey(key string) string {
 	prefix := key[:3]
 	suffix := key[len(key)-cloudMaskChars:]
 	return prefix + "..." + suffix
-}
-
-func cloudDeriveKey(secret string) []byte {
-	h := sha256.Sum256([]byte(secret))
-	return h[:]
-}
-
-func cloudEncryptString(plaintext, secret string) (string, error) {
-	key := cloudDeriveKey(secret)
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", err
-	}
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
-}
-
-func cloudDecryptString(encoded, secret string) (string, error) {
-	key := cloudDeriveKey(secret)
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonceSize := gcm.NonceSize()
-	if len(data) < nonceSize {
-		return "", fmt.Errorf("ciphertext too short")
-	}
-	plaintext, err := gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
-	if err != nil {
-		return "", err
-	}
-	return string(plaintext), nil
 }
