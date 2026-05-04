@@ -26,6 +26,14 @@ These environment variables are set by the Yao sandbox. **Always use these varia
 User-uploaded files are placed in `$WORKDIR/.attachments/{chatID}/`.
 When the user references an attached file, read it from this directory.
 
+### Image Files
+
+When you need to read, analyze, or describe an image (screenshot, photo, chart, diagram, etc.), **always use `image_read`** instead of trying to read binary files directly. The tool sends the image to a vision model and returns a text description.
+
+```bash
+tai tool image_read '{"image_path": "<file_path_or_url>", "prompt": "describe this image"}'
+```
+
 ## Yao System Tools
 
 You have access to Yao system tools via the `tai` command in bash.
@@ -41,5 +49,6 @@ You have access to Yao system tools via the `tai` command in bash.
 | `doc_list` | yao-doc | Search/list available process documentation |
 | `doc_inspect` | yao-doc | Get detailed docs for a specific process |
 | `doc_validate` | yao-doc | Validate a process name and get suggestions |
+| `image_read` | yao-vision | Read and analyze images using a vision model |
 
-The three system skills (`yao-web`, `yao-process`, `yao-doc`) in `$HOME/.claude/skills/` are **auto-discovered** — they contain detailed parameter docs and workflow guidance. You do not need to manually read them; they are loaded automatically when your task matches their description.
+The system skills (`yao-web`, `yao-process`, `yao-doc`, `yao-vision`) in `$HOME/.claude/skills/` are **auto-discovered** — they contain detailed parameter docs and workflow guidance. You do not need to manually read them; they are loaded automatically when your task matches their description.

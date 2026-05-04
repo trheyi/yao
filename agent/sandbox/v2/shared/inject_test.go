@@ -106,6 +106,67 @@ func TestAppendSystemPrompt_Idempotent(t *testing.T) {
 	}
 }
 
+func TestAppendSystemPrompt_UpdatesExistingContent(t *testing.T) {
+	dir := t.TempDir()
+	ws := newDirFS(dir)
+
+	oldContent := []byte("## Old Tools\nweb_search only\n")
+	if err := AppendSystemPrompt(ws, "CLAUDE.md", oldContent); err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+
+	newContent := []byte("## Updated Tools\nweb_search + image_read\n")
+	if err := AppendSystemPrompt(ws, "CLAUDE.md", newContent); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	got := string(data)
+	assertContains(t, got, "image_read")
+	assertContains(t, got, systemToolsMarker)
+	if containsStr(got, "Old Tools") {
+		t.Error("old content should have been replaced")
+	}
+}
+
+func TestAppendSystemPrompt_UpdatesPreservesUserContent(t *testing.T) {
+	dir := t.TempDir()
+	ws := newDirFS(dir)
+
+	userContent := []byte("# My Project\n\nUser notes.\n")
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), userContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldContent := []byte("## Old Tools\n")
+	if err := AppendSystemPrompt(ws, "CLAUDE.md", oldContent); err != nil {
+		t.Fatal(err)
+	}
+
+	newContent := []byte("## Updated Tools\nimage_read added\n")
+	if err := AppendSystemPrompt(ws, "CLAUDE.md", newContent); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	got := string(data)
+	assertContains(t, got, "My Project")
+	assertContains(t, got, "User notes")
+	assertContains(t, got, "image_read")
+	if containsStr(got, "Old Tools") {
+		t.Error("old injected content should have been replaced")
+	}
+}
+
+func containsStr(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
 func assertContains(t *testing.T, s, sub string) {
 	t.Helper()
 	if len(s) < len(sub) {

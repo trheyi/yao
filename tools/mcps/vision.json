@@ -1,0 +1,8 @@
+{
+  "name": "yao-vision",
+  "transport": "process",
+  "description": "Vision tools for image understanding",
+  "tools": {
+    "image_read": "tools.image_read"
+  }
+}

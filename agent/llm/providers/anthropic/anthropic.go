@@ -45,11 +45,11 @@ func buildAdapters(cap *goullm.Capabilities) []adapters.CapabilityAdapter {
 	// Tool call adapter
 	result = append(result, adapters.NewToolCallAdapter(cap.ToolCalls))
 
-	// Vision adapter
+	// Vision adapter (always registered to strip unsupported image content)
 	visionSupport, visionFormat := context.GetVisionSupport(cap)
 	if visionSupport {
 		result = append(result, adapters.NewVisionAdapter(true, visionFormat))
-	} else if cap.Vision != nil {
+	} else {
 		result = append(result, adapters.NewVisionAdapter(false, context.VisionFormatNone))
 	}
 

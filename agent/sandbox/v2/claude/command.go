@@ -77,6 +77,9 @@ func (r *Runner) buildCommand(ctx context.Context, req *types.StreamRequest, p p
 
 	var systemPrompt string
 	envPrompt := buildSandboxEnvPrompt(p, workDir)
+	if capPrompt := buildModelCapabilityPrompt(req); capPrompt != "" {
+		envPrompt += "\n\n" + capPrompt
+	}
 	if !isContinuation && req.SystemPrompt != "" {
 		systemPrompt = req.SystemPrompt + "\n\n" + envPrompt
 	} else if !isContinuation {
@@ -308,6 +311,142 @@ func buildSandboxEnvPrompt(p platform, workDir string) string {
 - **Working Directory**: %[1]s
 - **File Access**: You have full read/write access to %[1]s
 %[4]s`, workDir, osName, shell, shellNote)
+}
+
+func buildModelCapabilityPrompt(req *types.StreamRequest) string {
+	if req.Connector == nil {
+		return ""
+	}
+
+	lc, ok := req.Connector.(goullm.LLMConnector)
+	if !ok {
+		return ""
+	}
+	primaryModel := lc.GetModel()
+	if primaryModel == "" {
+		return ""
+	}
+	primaryCaps := lc.GetCapabilities()
+
+	type tierInfo struct {
+		tier  string
+		alias string
+		model string
+		caps  *goullm.Capabilities
+		conn  connector.Connector
+	}
+
+	tiers := []tierInfo{
+		{tier: "Default", alias: "sonnet", model: primaryModel, caps: primaryCaps, conn: req.Connector},
+	}
+
+	hasDifferentTier := false
+	if rc, exists := req.Roles["heavy"]; exists && rc != nil {
+		m := connectorModel(rc)
+		if m != "" {
+			caps := connectorCaps(rc)
+			tiers = append(tiers, tierInfo{tier: "Heavy", alias: "opus", model: m, caps: caps, conn: rc})
+			if m != primaryModel {
+				hasDifferentTier = true
+			}
+		}
+	}
+	if rc, exists := req.Roles["light"]; exists && rc != nil {
+		m := connectorModel(rc)
+		if m != "" {
+			caps := connectorCaps(rc)
+			tiers = append(tiers, tierInfo{tier: "Light", alias: "haiku", model: m, caps: caps, conn: rc})
+			if m != primaryModel {
+				hasDifferentTier = true
+			}
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## Model Capabilities\n\n")
+	sb.WriteString(fmt.Sprintf("Your current model: `%s`\n", primaryModel))
+
+	if hasDifferentTier {
+		sb.WriteString("\n### Available Model Tiers\n\n")
+		sb.WriteString("| Tier | Alias | Model | Capabilities |\n")
+		sb.WriteString("| ---- | ----- | ----- | ------------ |\n")
+		for _, t := range tiers {
+			capList := formatCapabilities(t.caps, t.conn)
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", t.tier, t.alias, t.model, capList))
+		}
+	}
+
+	var guidance []string
+	if hasDifferentTier {
+		guidance = append(guidance,
+			"For complex reasoning, multi-step analysis, or tasks requiring deep thought, delegate to a sub-agent with `model: \"opus\"`",
+			"For simple tasks (formatting, translation, summarization), use `model: \"haiku\"` for faster responses",
+		)
+	}
+
+	primaryHasVision := primaryCaps.HasVision()
+	if !primaryHasVision {
+		if _, hasVisionRole := req.Roles["vision"]; hasVisionRole {
+			guidance = append(guidance,
+				"**Image/Vision**: Your current model cannot process images directly. Use the `image_read` system tool (`tai tool image_read`) to analyze images — see the yao-vision skill for details",
+			)
+		}
+	}
+
+	if len(guidance) > 0 {
+		sb.WriteString("\n### Usage Guidance\n\n")
+		for _, g := range guidance {
+			sb.WriteString("- " + g + "\n")
+		}
+	}
+
+	if !hasDifferentTier && len(guidance) == 0 {
+		return ""
+	}
+
+	return sb.String()
+}
+
+func connectorModel(c connector.Connector) string {
+	if lc, ok := c.(goullm.LLMConnector); ok {
+		if m := lc.GetModel(); m != "" {
+			return m
+		}
+	}
+	m, _ := c.Setting()["model"].(string)
+	return m
+}
+
+func connectorCaps(c connector.Connector) *goullm.Capabilities {
+	if lc, ok := c.(goullm.LLMConnector); ok {
+		return lc.GetCapabilities()
+	}
+	return nil
+}
+
+func formatCapabilities(caps *goullm.Capabilities, conn connector.Connector) string {
+	var parts []string
+	hasThinking := caps.HasReasoning()
+	if !hasThinking && conn != nil {
+		if thinking, ok := conn.Setting()["thinking"].(map[string]interface{}); ok {
+			if t, _ := thinking["type"].(string); t == "enabled" {
+				hasThinking = true
+			}
+		}
+	}
+	if hasThinking {
+		parts = append(parts, "thinking")
+	}
+	if caps.HasVision() {
+		parts = append(parts, "vision")
+	}
+	if caps.HasToolCalls() {
+		parts = append(parts, "tool_calls")
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, ", ")
 }
 
 func hasExistingSession(ctx context.Context, computer infra.Computer, p platform, assistantID string) bool {

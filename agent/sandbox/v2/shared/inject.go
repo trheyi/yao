@@ -48,8 +48,9 @@ func InjectSystemSkills(ws writerFS, skills fs.FS, targetDir string) error {
 	})
 }
 
-// AppendSystemPrompt appends content to a file in the workspace with an
-// idempotent marker. If the marker already exists the call is a no-op.
+// AppendSystemPrompt injects content into a file in the workspace using an
+// idempotent marker. If the marker already exists, the injected section is
+// replaced with the new content (so updates propagate to existing sandboxes).
 // If the file does not exist it is created with just the marker + content.
 func AppendSystemPrompt(ws writerFS, filename string, content []byte) error {
 	existing, err := ws.ReadFile(filename)
@@ -61,8 +62,15 @@ func AppendSystemPrompt(ws writerFS, filename string, content []byte) error {
 		return ws.WriteFile(filename, append(header, content...), 0644)
 	}
 
-	if bytes.Contains(existing, []byte(systemToolsMarker)) {
-		return nil
+	idx := bytes.Index(existing, []byte(systemToolsMarker))
+	if idx >= 0 {
+		injected := append([]byte(systemToolsMarker+"\n\n"), content...)
+		prefix := existing[:idx]
+		merged := append(bytes.TrimRight(prefix, "\n\r\t "), []byte("\n\n---\n\n")...)
+		if idx == 0 {
+			merged = nil
+		}
+		return ws.WriteFile(filename, append(merged, injected...), 0644)
 	}
 
 	separator := []byte("\n\n---\n\n" + systemToolsMarker + "\n\n")

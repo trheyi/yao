@@ -10,6 +10,7 @@ import (
 	"github.com/yaoapp/kun/log"
 	"github.com/yaoapp/yao/tools/docs"
 	"github.com/yaoapp/yao/tools/proc"
+	"github.com/yaoapp/yao/tools/vision"
 	"github.com/yaoapp/yao/tools/webfetch"
 	"github.com/yaoapp/yao/tools/websearch"
 )
@@ -23,6 +24,9 @@ var mcpProcessDSL []byte
 //go:embed mcps/doc.json
 var mcpDocDSL []byte
 
+//go:embed mcps/vision.json
+var mcpVisionDSL []byte
+
 func init() {
 	process.RegisterGroup("tools", map[string]process.Handler{
 		"web_search":      websearch.Handler,
@@ -32,6 +36,7 @@ func init() {
 		"doc_list":        docs.ListHandler,
 		"doc_inspect":     docs.InspectHandler,
 		"doc_validate":    docs.ValidateHandler,
+		"image_read":      vision.Handler,
 	})
 
 	registerMCPServer(mcpWebDSL, "yao-web",
@@ -40,6 +45,8 @@ func init() {
 		proc.SchemaJSON, proc.AllowedSchemaJSON)
 	registerMCPServer(mcpDocDSL, "yao-doc",
 		docs.ListSchemaJSON, docs.InspectSchemaJSON, docs.ValidateSchemaJSON)
+	registerMCPServer(mcpVisionDSL, "yao-vision",
+		vision.SchemaJSON)
 }
 
 func registerMCPServer(dsl []byte, id string, schemas ...[]byte) {

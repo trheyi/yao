@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/yaoapp/gou/connector"
+	goullm "github.com/yaoapp/gou/llm"
 	gouTypes "github.com/yaoapp/gou/types"
 	"github.com/yaoapp/xun/dbal/query"
 	"github.com/yaoapp/xun/dbal/schema"
@@ -700,4 +701,156 @@ func TestBuildEnv_Anthropic_MultiConnector_Incompatible(t *testing.T) {
 	env := buildEnv(req, p)
 	assert.Equal(t, "claude-sonnet-4-20250514", env["ANTHROPIC_DEFAULT_OPUS_MODEL"],
 		"incompatible connector: heavy should keep primary model (different host, no anthropic protocol)")
+}
+
+// --- fakeLLMConnector implements both connector.Connector and goullm.LLMConnector ---
+
+type fakeLLMConnector struct {
+	fakeConnector
+	model string
+	caps  *goullm.Capabilities
+}
+
+func (f *fakeLLMConnector) GetAuthMode() goullm.AuthMode { return goullm.AuthBearer }
+func (f *fakeLLMConnector) GetURL() string               { return "" }
+func (f *fakeLLMConnector) GetKey() string               { return "" }
+func (f *fakeLLMConnector) GetModel() string             { return f.model }
+func (f *fakeLLMConnector) GetSupportedParams() map[string]*goullm.ParamSpec {
+	return nil
+}
+func (f *fakeLLMConnector) GetCapabilities() *goullm.Capabilities { return f.caps }
+
+// --- buildModelCapabilityPrompt tests ---
+
+func TestBuildModelCapabilityPrompt_NilConnector(t *testing.T) {
+	req := &types.StreamRequest{Config: &types.SandboxConfig{}}
+	result := buildModelCapabilityPrompt(req)
+	assert.Empty(t, result)
+}
+
+func TestBuildModelCapabilityPrompt_NoRoles_NoSpecialCaps(t *testing.T) {
+	primary := &fakeLLMConnector{
+		fakeConnector: fakeConnector{id: "test", typ: connector.OPENAI, settings: map[string]interface{}{"model": "deepseek-v4-flash"}},
+		model:         "deepseek-v4-flash",
+		caps:          &goullm.Capabilities{ToolCalls: true, Streaming: true},
+	}
+	req := &types.StreamRequest{
+		Config:    &types.SandboxConfig{},
+		Connector: primary,
+	}
+	result := buildModelCapabilityPrompt(req)
+	assert.Empty(t, result, "no roles and no special caps → empty")
+}
+
+func TestBuildModelCapabilityPrompt_WithHeavyAndLight(t *testing.T) {
+	primary := &fakeLLMConnector{
+		fakeConnector: fakeConnector{id: "ds-flash", typ: connector.OPENAI, settings: map[string]interface{}{"model": "deepseek-v4-flash"}},
+		model:         "deepseek-v4-flash",
+		caps:          &goullm.Capabilities{ToolCalls: true},
+	}
+	heavy := &fakeLLMConnector{
+		fakeConnector: fakeConnector{id: "ds-pro", typ: connector.OPENAI, settings: map[string]interface{}{"model": "deepseek-v4-pro"}},
+		model:         "deepseek-v4-pro",
+		caps:          &goullm.Capabilities{Reasoning: true, ToolCalls: true},
+	}
+	light := &fakeLLMConnector{
+		fakeConnector: fakeConnector{id: "ds-lite", typ: connector.OPENAI, settings: map[string]interface{}{"model": "deepseek-v4-flash"}},
+		model:         "deepseek-v4-flash",
+		caps:          &goullm.Capabilities{ToolCalls: true},
+	}
+
+	req := &types.StreamRequest{
+		Config:    &types.SandboxConfig{},
+		Connector: primary,
+		Roles: map[string]connector.Connector{
+			"default": primary,
+			"heavy":   heavy,
+			"light":   light,
+		},
+	}
+	result := buildModelCapabilityPrompt(req)
+	assert.Contains(t, result, "deepseek-v4-flash")
+	assert.Contains(t, result, "deepseek-v4-pro")
+	assert.Contains(t, result, "opus")
+	assert.Contains(t, result, "haiku")
+	assert.Contains(t, result, "thinking")
+	assert.Contains(t, result, "tool_calls")
+	assert.Contains(t, result, "sub-agent")
+}
+
+func TestBuildModelCapabilityPrompt_VisionGuidance(t *testing.T) {
+	primary := &fakeLLMConnector{
+		fakeConnector: fakeConnector{id: "ds-flash", typ: connector.OPENAI, settings: map[string]interface{}{"model": "deepseek-v4-flash"}},
+		model:         "deepseek-v4-flash",
+		caps:          &goullm.Capabilities{ToolCalls: true},
+	}
+	visionConn := &fakeLLMConnector{
+		fakeConnector: fakeConnector{id: "vision", typ: connector.OPENAI, settings: map[string]interface{}{"model": "gpt-4o"}},
+		model:         "gpt-4o",
+		caps:          &goullm.Capabilities{Vision: true, ToolCalls: true},
+	}
+
+	req := &types.StreamRequest{
+		Config:    &types.SandboxConfig{},
+		Connector: primary,
+		Roles: map[string]connector.Connector{
+			"default": primary,
+			"vision":  visionConn,
+		},
+	}
+	result := buildModelCapabilityPrompt(req)
+	assert.Contains(t, result, "image_read")
+	assert.Contains(t, result, "Image/Vision")
+}
+
+func TestBuildModelCapabilityPrompt_PrimaryHasVision_NoGuidance(t *testing.T) {
+	primary := &fakeLLMConnector{
+		fakeConnector: fakeConnector{id: "gpt4o", typ: connector.OPENAI, settings: map[string]interface{}{"model": "gpt-4o"}},
+		model:         "gpt-4o",
+		caps:          &goullm.Capabilities{Vision: true, ToolCalls: true},
+	}
+
+	req := &types.StreamRequest{
+		Config:    &types.SandboxConfig{},
+		Connector: primary,
+		Roles: map[string]connector.Connector{
+			"default": primary,
+			"vision":  primary,
+		},
+	}
+	result := buildModelCapabilityPrompt(req)
+	assert.NotContains(t, result, "image_read", "should not suggest image_read when primary has vision")
+}
+
+func TestBuildModelCapabilityPrompt_ThinkingFromSettings(t *testing.T) {
+	primary := &fakeLLMConnector{
+		fakeConnector: fakeConnector{
+			id:  "ds-pro",
+			typ: connector.OPENAI,
+			settings: map[string]interface{}{
+				"model": "deepseek-v4-pro",
+				"thinking": map[string]interface{}{
+					"type": "enabled",
+				},
+			},
+		},
+		model: "deepseek-v4-pro",
+		caps:  &goullm.Capabilities{ToolCalls: true},
+	}
+	heavy := &fakeLLMConnector{
+		fakeConnector: fakeConnector{id: "ds-pro2", typ: connector.OPENAI, settings: map[string]interface{}{"model": "deepseek-v4-pro-max"}},
+		model:         "deepseek-v4-pro-max",
+		caps:          &goullm.Capabilities{ToolCalls: true},
+	}
+
+	req := &types.StreamRequest{
+		Config:    &types.SandboxConfig{},
+		Connector: primary,
+		Roles: map[string]connector.Connector{
+			"default": primary,
+			"heavy":   heavy,
+		},
+	}
+	result := buildModelCapabilityPrompt(req)
+	assert.Contains(t, result, "thinking", "should detect thinking from Setting()[\"thinking\"]")
 }
